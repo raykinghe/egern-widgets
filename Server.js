@@ -78,7 +78,6 @@ export default async function (ctx) {
       timeout: 8000,
     });
 
-    // 重新拉回了 进程(CMD10) 和 Swap(CMD4增强) 的抓取
     const cmds = [
       'echo "[CMD0]"; hostname -s 2>/dev/null || hostname',
       'echo "[CMD1]"; cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
@@ -123,7 +122,6 @@ export default async function (ctx) {
     while (cpuHist.length > 20) cpuHist.shift();
     ctx.storage.setJSON('_cpuH', cpuHist);
 
-    // 解析内存和Swap
     const memNums = (parseOutput(stdout, 4) || '1 0 1 0').split(/\s+/).map(Number);
     const memTotal = memNums[0] || 1, memUsed = memNums[1] || 0;
     const swapTotal = memNums[2] || 0, swapUsed = memNums[3] || 0;
@@ -216,7 +214,7 @@ export default async function (ctx) {
   const alphaHex = a => Math.round(a * 255).toString(16).padStart(2, '0');
   const bgGradient = { type: 'linear', colors: [C.bg1, C.bg2], startPoint: { x: 0, y: 0 }, endPoint: { x: 0.3, y: 1 } };
 
-  const bar = (pct, color, h = 6) => ({
+  const bar = (pct, color, h = 5) => ({
     type: 'stack', direction: 'row', height: h, borderRadius: h / 2, backgroundColor: C.barBg,
     children: pct > 0 ? [
       { type: 'stack', flex: Math.max(1, pct), height: h, borderRadius: h / 2, backgroundColor: color, children: [] },
@@ -224,7 +222,7 @@ export default async function (ctx) {
     ] : [{ type: 'spacer' }],
   });
 
-  const spark = (data, color, h = 20) => {
+  const spark = (data, color, h = 18) => {
     if (!data || data.length === 0) return { type: 'spacer', length: h };
     const mx = Math.max(...data, 1);
     return {
@@ -316,30 +314,32 @@ export default async function (ctx) {
     };
   }
 
-  // 大组件 (终极豪华排版版)
+  // 大组件 (终极豪华紧凑调校版)
   return {
-    type: 'widget', backgroundGradient: bgGradient, padding: [12, 14], gap: 6,
+    type: 'widget', backgroundGradient: bgGradient, padding: [10, 14], gap: 4,
     children: [
-      header(16), divider, { type: 'spacer' },
+      header(16), divider, { type: 'spacer', length: 2 },
       
       // CPU 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 13, height: 13 }, { type: 'text', text: `CPU ${d.cores}C`, font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.cpuPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.cpuPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `Load ${d.load.join(' ')}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      spark(d.cpuHist, pctColor(d.cpuPct, 60, 85), 26), bar(d.cpuPct, pctColor(d.cpuPct, 60, 85), 6), divider, { type: 'spacer' },
+      spark(d.cpuHist, pctColor(d.cpuPct, 60, 85), 22), bar(d.cpuPct, pctColor(d.cpuPct, 60, 85), 5), divider, { type: 'spacer', length: 2 },
       
-      // MEM & Swap 区 (完美糅合进 Procs 活跃进程)
+      // MEM & Swap 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 13, height: 13 }, { type: 'text', text: 'MEM', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.memPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.memPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `Procs: ${d.procs}`, font: { size: 10, weight: 'medium' }, textColor: C.text }, { type: 'spacer', width: 6 }, { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      spark(d.memHist, C.mem, 22), bar(d.memPct, pctColor(d.memPct, 60, 85), 6),
-      // 优雅容纳 Swap
-      { type: 'stack', direction: 'row', children: [{ type: 'text', text: `Swap: ${d.swapPct}%`, font: { size: 10, family: 'Menlo' }, textColor: d.swapPct > 50 ? C.temp : C.dim }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.swapUsed)} / ${fmtBytes(d.swapTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      divider, { type: 'spacer' },
+      spark(d.memHist, C.mem, 20), bar(d.memPct, pctColor(d.memPct, 60, 85), 5),
+      // 智能隐藏/展示 Swap 机制
+      ...(d.swapTotal > 0 ? [
+        { type: 'stack', direction: 'row', children: [{ type: 'text', text: `Swap: ${d.swapPct}%`, font: { size: 10, family: 'Menlo' }, textColor: d.swapPct > 50 ? C.temp : C.dim }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.swapUsed)} / ${fmtBytes(d.swapTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }
+      ] : []),
+      divider, { type: 'spacer', length: 2 },
       
       // Disk 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 }, { type: 'text', text: 'Disk', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.diskPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.diskPct, 70, 90) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      bar(d.diskPct, pctColor(d.diskPct, 70, 90), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer' },
+      bar(d.diskPct, pctColor(d.diskPct, 70, 90), 5), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer', length: 2 },
       
       // Traffic 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 13, height: 13 }, { type: 'text', text: 'Traffic', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      bar(d.tfPct, trafficColor(d.tfPct), 6), 
+      bar(d.tfPct, trafficColor(d.tfPct), 5), 
       { type: 'stack', direction: 'row', children: [{ type: 'text', text: `↓ 下载: ${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↑ 上传: ${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
       divider,
       
