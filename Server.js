@@ -105,7 +105,7 @@ export default async function (ctx) {
       'hostname -s 2>/dev/null || hostname',
       'cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
       'head -1 /proc/stat 2>/dev/null || echo ""',
-      "awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}END{print t,a,f,b,c}' /proc/meminfo 2>/dev/null || echo '0 0 0 0 0'",
+      "awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}/SwapTotal/{st=$2}/SwapFree/{sf=$2}END{print t,a,f,b,c,st,sf}' /proc/meminfo 2>/dev/null || echo '0 0 0 0 0 0 0'",
       'LANG=C df -B1 --output=size,used,pcent / 2>/dev/null | tail -1 || echo ""',
       'nproc 2>/dev/null || echo "1"',
       "curl -4 -s -m 2 ipv4.ip.sb || curl -6 -s -m 2 ipv6.ip.sb || echo ''",
@@ -139,7 +139,7 @@ export default async function (ctx) {
     cpuPct = Math.max(0, Math.min(100, cpuPct));
 
     // MEM & SWAP
-    const memKB = (p[3] || '0 0 0 0 0').split(' ').map(Number);
+    const memKB = (p[3] || '0 0 0 0 0 0 0').split(' ').map(Number);
     const memTotal = memKB[0] * 1024 || 1;
     let memAvailable = memKB[1] * 1024 || 0;
     if (memAvailable === 0) { // 老内核降级
@@ -148,8 +148,8 @@ export default async function (ctx) {
     const memUsed = memTotal - memAvailable;
     const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100));
 
-    const swapTotal = (memKB[2] || 0) * 1024;
-    const swapFree = (memKB[3] || 0) * 1024;
+    const swapTotal = (memKB[5] || 0) * 1024;
+    const swapFree = (memKB[6] || 0) * 1024;
     const swapUsed = swapTotal - swapFree;
     const swapPct = swapTotal > 0 ? Math.min(100, Math.round((swapUsed / swapTotal) * 100)) : 0;
 
@@ -276,7 +276,7 @@ export default async function (ctx) {
 
   // Medium 布局
   return {
-    type: 'widget', backgroundColor: C.bg, padding: [12, 14], gap: 8,
+    type: 'widget', backgroundColor: C.bg, padding: [10, 14], gap: 5,
     children: [
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [
         { type: 'image', src: 'sf-symbol:server.rack', color: C.text, width: 15, height: 15 },
@@ -286,7 +286,7 @@ export default async function (ctx) {
         { type: 'text', text: `Load: ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
       ]},
 
-      { type: 'stack', direction: 'column', gap: 7, children: [
+      { type: 'stack', direction: 'column', gap: 5, children: [
         { type: 'stack', direction: 'column', gap: 3, children: [
           { type: 'stack', direction: 'row', alignItems: 'center', children: [
             { type: 'text', text: `CPU ${d.cores}C`, font: { size: 11.5, weight: 'bold' }, textColor: C.text },
