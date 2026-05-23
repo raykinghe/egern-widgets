@@ -1,6 +1,7 @@
-// Server Monitor Widget — Final Stable Edition
+// Server Monitor Widget — Tailored Localized Edition
 export default async function (ctx) {
 
+  // ─── Helpers ────────────────────────────────
   const fmtBytes = b => {
     if (!b || isNaN(b)) return '0B';
     if (b >= 1024 ** 4) return (b / 1024 ** 4).toFixed(1) + 'T';
@@ -17,6 +18,25 @@ export default async function (ctx) {
     const clampedDay = Math.min(resetDay, lastDay);
     const next = new Date(now.getFullYear(), targetMonth, clampedDay);
     return `${next.getMonth() + 1}月${next.getDate()}日`;
+  };
+
+  // 🛠️ 优化功能：将 linux 的 uptime 翻译转换为 "X天Y小时" 紧凑格式
+  const formatUptime = (rawStr) => {
+    let clean = rawStr.replace(/^up\s+/, '').replace(/,\s*$/, '').trim();
+    if (!clean || clean === 'unknown') return '—';
+    
+    clean = clean.replace(/(\d+)\s+days?/, '$1天')
+                 .replace(/(\d+)\s+hours?/, '$1小时')
+                 .replace(/(\d+)\s+minutes?/, '$1分钟')
+                 .replace(/,\s*/g, ''); 
+    return clean;
+  };
+
+  // 🛠️ 优化功能：生成本地精确定格的 "刷新于 17:49:44" 时间文本
+  const getRefreshTimeString = () => {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `刷新于 ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
   };
 
   let d;
@@ -59,7 +79,6 @@ export default async function (ctx) {
       timeout: 8000,
     });
 
-    // 💡 改用 [CMDx] 标签加分号拼接，彻底防御命令执行失败导致的断流和 undefined 崩溃
     const cmds = [
       'echo "[CMD0]"; hostname -s 2>/dev/null || hostname',
       'echo "[CMD1]"; cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
@@ -86,9 +105,10 @@ export default async function (ctx) {
     const hostname = parseOutput(stdout, 0) || 'server';
     const la = (parseOutput(stdout, 1) || '0 0 0').split(' ');
     const load = [la[0] || '0', la[1] || '0', la[2] || '0'];
-    const uptime = parseOutput(stdout, 2).replace(/^up\s+/, '').replace(/,\s*$/, '') || 'unknown';
+    
+    // 应用时间中文转换格式
+    const uptime = formatUptime(parseOutput(stdout, 2));
 
-    // 修复 p[3].replace 错误核心区：提取时全做安全兜底
     const cpuStr = parseOutput(stdout, 3) || 'cpu 0 0 0 0';
     const cpuNums = cpuStr.replace(/^cpu\s+/, '').split(/\s+/).map(Number);
     const cpuTotal = cpuNums.reduce((a, b) => a + b, 0) || 0;
@@ -244,13 +264,14 @@ export default async function (ctx) {
         { type: 'image', src: 'sf-symbol:thermometer.medium', color: pctColor(d.temp, 60, 80), width: 11, height: 11 },
         { type: 'text', text: `${d.temp}°C`, font: { size: 11, family: 'Menlo' }, textColor: pctColor(d.temp, 60, 80) },
       ] : []),
-      { type: 'text', text: d.uptime, font: { size: 'caption2' }, textColor: C.muted, maxLines: 1, minScale: 0.7 },
+      { type: 'text', text: d.uptime, font: { size: 'caption2', weight: 'medium' }, textColor: C.muted, maxLines: 1, minScale: 0.7 },
     ],
   });
 
+  // 🛠️ 核心修改：左下角改为显示 "刷新于 HH:MM:SS" 格式
   const makeFooter = () => ({
     type: 'stack', direction: 'row', alignItems: 'center', children: [
-      { type: 'date', date: new Date().toISOString(), format: 'relative', font: { size: 'caption2' }, textColor: C.dim },
+      { type: 'text', text: getRefreshTimeString(), font: { size: 'caption2' }, textColor: C.dim },
       { type: 'spacer' },
       { type: 'text', text: `流量重置: ${d.tfReset || '—'}`, font: { size: 'caption2' }, textColor: C.dim },
     ],
