@@ -1,7 +1,7 @@
-// Server Monitor Widget — Perfect Localized & Optimized Edition
+// Server Monitor Widget — Ultimate Mega Edition (All Specs Restored)
 export default async function (ctx) {
 
-  // ─── Helpers ────────────────────────────────
+  // ─── 核心辅助函数 ────────────────
   const fmtBytes = b => {
     if (!b || isNaN(b)) return '0B';
     if (b >= 1024 ** 4) return (b / 1024 ** 4).toFixed(1) + 'T';
@@ -11,24 +11,11 @@ export default async function (ctx) {
     return Math.round(b) + 'B';
   };
 
-  const getNextResetDate = (resetDay) => {
-    const now = new Date();
-    const targetMonth = now.getMonth() + (now.getDate() >= resetDay ? 1 : 0);
-    const lastDay = new Date(now.getFullYear(), targetMonth + 1, 0).getDate();
-    const clampedDay = Math.min(resetDay, lastDay);
-    const next = new Date(now.getFullYear(), targetMonth, clampedDay);
-    return `${next.getMonth() + 1}月${next.getDate()}日`;
-  };
-
-  // 解析 Linux 复杂的 uptime
   const formatUptime = (rawStr) => {
     let clean = rawStr.replace(/^up\s+/, '').replace(/,\s*$/, '').trim();
-    if (!clean || clean === 'unknown') return '—';
+    if (!clean || clean === 'unknown') return '在线: —';
 
-    let totalDays = 0;
-    let hours = 0;
-    let minutes = 0;
-
+    let totalDays = 0, hours = 0, minutes = 0;
     const weekMatch = clean.match(/(\d+)\s+weeks?/);
     if (weekMatch) totalDays += parseInt(weekMatch[1]) * 7;
 
@@ -46,10 +33,9 @@ export default async function (ctx) {
     if (hours > 0)     result += `${hours}小时`;
     if (minutes > 0 && totalDays === 0) result += `${minutes}分钟`;
     
-    return result || '刚刚开机';
+    return result ? `在线: ${result}` : '刚刚开机';
   };
 
-  // 生成本地精确定格的刷新时间
   const getRefreshTimeString = () => {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
@@ -60,10 +46,8 @@ export default async function (ctx) {
   try {
     const env = ctx.env;
     const { host, username, password, privateKey, port } = env;
-    const bwhVeid        = env.BWH_VEID || '';
-    const bwhApiKey      = env.BWH_API_KEY || '';
-    const trafficLimitGB = Number(env.TRAFFIC_LIMIT) || 2000;
-    const resetDay       = Number(env.RESET_DAY) || 1;
+    const bwhVeid   = env.BWH_VEID || '';
+    const bwhApiKey = env.BWH_API_KEY || '';
 
     let finalKey = privateKey;
     if (privateKey && typeof privateKey === 'string') {
@@ -71,10 +55,8 @@ export default async function (ctx) {
       const headerMatch = raw.match(/-----BEGIN [A-Z ]+-----/);
       const footerMatch = raw.match(/-----END [A-Z ]+-----/);
       if (headerMatch && footerMatch) {
-        const header = headerMatch[0];
-        const footer = footerMatch[0];
-        let body = raw.substring(raw.indexOf(header) + header.length, raw.indexOf(footer));
-        body = body.replace(/\s+/g, '');
+        const header = headerMatch[0], footer = footerMatch[0];
+        let body = raw.substring(raw.indexOf(header) + header.length, raw.indexOf(footer)).replace(/\s+/g, '');
         const lines = body.match(/.{1,64}/g) || [];
         finalKey = `${header}\n${lines.join('\n')}\n${footer}`;
       } else {
@@ -96,12 +78,13 @@ export default async function (ctx) {
       timeout: 8000,
     });
 
+    // 重新拉回了 进程(CMD10) 和 Swap(CMD4增强) 的抓取
     const cmds = [
       'echo "[CMD0]"; hostname -s 2>/dev/null || hostname',
       'echo "[CMD1]"; cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
       'echo "[CMD2]"; uptime -p 2>/dev/null || uptime',
       'echo "[CMD3]"; head -1 /proc/stat 2>/dev/null || echo "cpu 0 0 0 0"',
-      'echo "[CMD4]"; awk \'/MemTotal/{t=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}END{print t*1024,(t-f-b-c)*1024}\' /proc/meminfo 2>/dev/null || echo "1 0"',
+      'echo "[CMD4]"; awk \'/MemTotal/{mt=$2}/MemFree/{mf=$2}/Buffers/{mb=$2}/^Cached/{mc=$2}/SwapTotal/{st=$2}/SwapFree/{sf=$2}END{print mt*1024,(mt-mf-mb-mc)*1024,st*1024,(st-sf)*1024}\' /proc/meminfo 2>/dev/null || echo "1 0 1 0"',
       'echo "[CMD5]"; df -B1 / 2>/dev/null | tail -1 || echo "/ 1 0 0 0%"',
       'echo "[CMD6]"; nproc 2>/dev/null || echo "1"',
       'echo "[CMD7]"; awk \'/^ *(eth|en|wlan|ens|eno|bond|veth)/{rx+=$2;tx+=$10}END{print rx,tx}\' /proc/net/dev 2>/dev/null || echo "0 0"',
@@ -122,7 +105,6 @@ export default async function (ctx) {
     const hostname = parseOutput(stdout, 0) || 'server';
     const la = (parseOutput(stdout, 1) || '0 0 0').split(' ');
     const load = [la[0] || '0', la[1] || '0', la[2] || '0'];
-    
     const uptime = formatUptime(parseOutput(stdout, 2));
 
     const cpuStr = parseOutput(stdout, 3) || 'cpu 0 0 0 0';
@@ -141,9 +123,14 @@ export default async function (ctx) {
     while (cpuHist.length > 20) cpuHist.shift();
     ctx.storage.setJSON('_cpuH', cpuHist);
 
-    const memNums = (parseOutput(stdout, 4) || '1 0').split(/\s+/).map(Number);
+    // 解析内存和Swap
+    const memNums = (parseOutput(stdout, 4) || '1 0 1 0').split(/\s+/).map(Number);
     const memTotal = memNums[0] || 1, memUsed = memNums[1] || 0;
+    const swapTotal = memNums[2] || 0, swapUsed = memNums[3] || 0;
+    
     const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100)) || 0;
+    const swapPct = swapTotal > 0 ? Math.min(100, Math.round((swapUsed / swapTotal) * 100)) : 0;
+
     const memHist = ctx.storage.getJSON('_memH') || [];
     memHist.push(memPct);
     while (memHist.length > 20) memHist.shift();
@@ -194,23 +181,16 @@ export default async function (ctx) {
       if (bwhData.data_next_reset) {
         const rd = new Date(bwhData.data_next_reset * 1000);
         tfReset = `${rd.getMonth() + 1}月${rd.getDate()}日`;
-      } else {
-        tfReset = '—';
       }
-    } else {
-      tfUsed  = netRx + netTx;
-      tfTotal = trafficLimitGB * (1024 ** 3);
-      tfPct   = Math.min((tfUsed / tfTotal) * 100, 100);
-      tfReset = getNextResetDate(resetDay);
     }
 
     d = {
       hostname, load, uptime, cpuPct, cpuHist, cores,
       memTotal, memUsed, memPct, memHist,
+      swapTotal, swapUsed, swapPct, procs,
       diskTotal, diskUsed, diskPct, diskRd, diskWr,
       rxRate, txRate, netRx, netTx,
-      tfUsed, tfTotal, tfPct, tfReset,
-      temp, procs,
+      tfUsed, tfTotal, tfPct, tfReset, temp
     };
   } catch (e) {
     d = { error: String(e.message || e) };
@@ -279,16 +259,9 @@ export default async function (ctx) {
       ...(d.temp > 0 ? [
         { type: 'image', src: 'sf-symbol:thermometer.medium', color: pctColor(d.temp, 60, 80), width: 11, height: 11 },
         { type: 'text', text: `${d.temp}°C`, font: { size: 11, family: 'Menlo' }, textColor: pctColor(d.temp, 60, 80) },
+        { type: 'spacer', width: 6 }
       ] : []),
-      { type: 'text', text: d.uptime, font: { size: 'caption2', weight: 'medium' }, textColor: C.muted, maxLines: 1, minScale: 0.7 },
-    ],
-  });
-
-  const makeFooter = () => ({
-    type: 'stack', direction: 'row', alignItems: 'center', children: [
-      { type: 'text', text: getRefreshTimeString(), font: { size: 'caption2' }, textColor: C.dim },
-      { type: 'spacer' },
-      { type: 'text', text: `流量重置: ${d.tfReset || '—'}`, font: { size: 'caption2' }, textColor: C.dim },
+      { type: 'text', text: d.uptime, font: { size: 'caption2', weight: 'semibold' }, textColor: C.muted, maxLines: 1, minScale: 0.7 },
     ],
   });
 
@@ -306,8 +279,8 @@ export default async function (ctx) {
   }
 
   if (ctx.widgetFamily === 'accessoryInline') return { type: 'widget', children: [{ type: 'text', text: `${d.hostname}  CPU ${d.cpuPct}%  MEM ${d.memPct}%` }] };
-  if (ctx.widgetFamily === 'accessoryCircular') return { type: 'widget', padding: 4, children: [{ type: 'spacer' }, { type: 'text', text: `${d.cpuPct}%`, font: { size: 'title2', weight: 'bold' }, textAlign: 'center' }, { type: 'text', text: 'CPU', font: { size: 'caption2', weight: 'medium' }, textAlign: 'center', opacity: 0.7 }, { type: 'spacer' }] };
-  if (ctx.widgetFamily === 'accessoryRectangular') return { type: 'widget', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:server.rack', width: 11, height: 11 }, { type: 'text', text: d.hostname, font: { size: 'headline', weight: 'bold' }, maxLines: 1 }] }, { type: 'text', text: `CPU ${d.cpuPct}%  MEM ${d.memPct}%  DSK ${d.diskPct}%`, font: { size: 11, family: 'Menlo' } }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s  ↑${fmtBytes(d.txRate)}/s  流量 ${d.tfPct.toFixed(0)}%`, font: { size: 11, family: 'Menlo' }, opacity: 0.7 }] };
+  if (ctx.widgetFamily === 'accessoryCircular') return { type: 'widget', padding: 4, children: [{ type: 'spacer' }, { type: 'text', text: `${d.cpuPct}%`, font: { size: 'title2', weight: 'bold' }, textAlign: 'center' }, { type: 'spacer' }] };
+  if (ctx.widgetFamily === 'accessoryRectangular') return { type: 'widget', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:server.rack', width: 11, height: 11 }, { type: 'text', text: d.hostname, font: { size: 'headline', weight: 'bold' }, maxLines: 1 }] }, { type: 'text', text: `CPU ${d.cpuPct}%  MEM ${d.memPct}%  DSK ${d.diskPct}%`, font: { size: 11, family: 'Menlo' } }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s  ↑${fmtBytes(d.txRate)}/s`, font: { size: 11, family: 'Menlo' }, opacity: 0.7 }] };
 
   if (ctx.widgetFamily === 'systemSmall') {
     return {
@@ -317,7 +290,6 @@ export default async function (ctx) {
           { type: 'image', src: 'sf-symbol:server.rack', color: C.cpu, width: 13, height: 13 },
           { type: 'text', text: d.hostname, font: { size: 'subheadline', weight: 'bold' }, textColor: C.text, maxLines: 1, minScale: 0.8 },
           { type: 'spacer' },
-          ...(d.temp > 0 ? [{ type: 'text', text: `${d.temp}°`, font: { size: 11, family: 'Menlo' }, textColor: pctColor(d.temp, 60, 80) }] : []),
         ]},
         spark(d.cpuHist, C.cpu, 20),
         metric('cpu', 'CPU', d.cpuPct, `${d.cpuPct}%`, pctColor(d.cpuPct, 60, 85)),
@@ -331,36 +303,47 @@ export default async function (ctx) {
     return {
       type: 'widget', backgroundGradient: bgGradient, padding: [10, 14],
       children: [
-        header(14), { type: 'spacer' },
+        { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [{ type: 'image', src: 'sf-symbol:server.rack', color: C.cpu, width: 14, height: 14 }, { type: 'text', text: d.hostname, font: { size: 'headline', weight: 'bold' }, textColor: C.text, maxLines: 1 }, { type: 'spacer' }] }, 
+        { type: 'spacer' },
         { type: 'stack', direction: 'column', gap: 6, children: [
           { type: 'stack', direction: 'column', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 11, height: 11 }, { type: 'text', text: `CPU ${d.cores}C`, font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `${d.cpuPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.cpuPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `Load ${d.load.join(' ')}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, bar(d.cpuPct, pctColor(d.cpuPct, 60, 85), 4)] },
           { type: 'stack', direction: 'column', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 11, height: 11 }, { type: 'text', text: 'MEM', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `${d.memPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.memPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, bar(d.memPct, pctColor(d.memPct, 60, 85), 4)] },
           { type: 'stack', direction: 'column', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 11, height: 11 }, { type: 'text', text: 'TRAF', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, bar(d.tfPct, trafficColor(d.tfPct), 4)] },
-          { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:network', color: C.net, width: 11, height: 11 }, { type: 'text', text: 'NET', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s`, font: { size: 11, family: 'Menlo', weight: 'medium' }, textColor: C.net }, { type: 'text', text: `↑${fmtBytes(d.txRate)}/s`, font: { size: 11, family: 'Menlo', weight: 'medium' }, textColor: C.netTx }, { type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.netRx)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'text', text: `↑${fmtBytes(d.netTx)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }
         ]},
-        { type: 'spacer' }, makeFooter(),
+        { type: 'spacer' },
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [{ type: 'text', text: getRefreshTimeString(), font: { size: 'caption2' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `流量重置: ${d.tfReset || '—'}`, font: { size: 'caption2' }, textColor: C.dim }] }
       ],
     };
   }
 
+  // 大组件 (终极豪华排版版)
   return {
     type: 'widget', backgroundGradient: bgGradient, padding: [12, 14], gap: 6,
     children: [
       header(16), divider, { type: 'spacer' },
+      
+      // CPU 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 13, height: 13 }, { type: 'text', text: `CPU ${d.cores}C`, font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.cpuPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.cpuPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `Load ${d.load.join(' ')}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      spark(d.cpuHist, pctColor(d.cpuPct, 60, 85), 28), bar(d.cpuPct, pctColor(d.cpuPct, 60, 85), 6), divider, { type: 'spacer' },
-      { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 13, height: 13 }, { type: 'text', text: 'MEM', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.memPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.memPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      spark(d.memHist, C.mem, 24), bar(d.memPct, pctColor(d.memPct, 60, 85), 6), divider, { type: 'spacer' },
+      spark(d.cpuHist, pctColor(d.cpuPct, 60, 85), 26), bar(d.cpuPct, pctColor(d.cpuPct, 60, 85), 6), divider, { type: 'spacer' },
+      
+      // MEM & Swap 区 (完美糅合进 Procs 活跃进程)
+      { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 13, height: 13 }, { type: 'text', text: 'MEM', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.memPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.memPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `Procs: ${d.procs}`, font: { size: 10, weight: 'medium' }, textColor: C.text }, { type: 'spacer', width: 6 }, { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
+      spark(d.memHist, C.mem, 22), bar(d.memPct, pctColor(d.memPct, 60, 85), 6),
+      // 优雅容纳 Swap
+      { type: 'stack', direction: 'row', children: [{ type: 'text', text: `Swap: ${d.swapPct}%`, font: { size: 10, family: 'Menlo' }, textColor: d.swapPct > 50 ? C.temp : C.dim }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.swapUsed)} / ${fmtBytes(d.swapTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
+      divider, { type: 'spacer' },
+      
+      // Disk 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 }, { type: 'text', text: 'Disk', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.diskPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.diskPct, 70, 90) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.diskPct, pctColor(d.diskPct, 70, 90), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer' },
       
-      // 🛠️ 终极黄金排版：无重复、无截断、左右双向完美对齐的纯网速展示！
+      // Traffic 区
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 13, height: 13 }, { type: 'text', text: 'Traffic', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.tfPct, trafficColor(d.tfPct), 6), 
       { type: 'stack', direction: 'row', children: [{ type: 'text', text: `↓ 下载: ${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↑ 上传: ${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
       divider,
       
-      makeFooter(),
+      { type: 'stack', direction: 'row', alignItems: 'center', children: [{ type: 'text', text: getRefreshTimeString(), font: { size: 'caption2' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `流量重置: ${d.tfReset || '—'}`, font: { size: 'caption2' }, textColor: C.dim }] },
     ],
   };
 }
