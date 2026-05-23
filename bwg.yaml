@@ -41,7 +41,7 @@ env_schema:
 
 scriptings:
 - generic:
-    name: 服务器监控Merged
+    name: 服务器监控BWG
     # ⚠️ 请将下方网址修改为你自己 GitHub 仓库里 Server.js 的真实 Raw 链接
     script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/Server.js
 
