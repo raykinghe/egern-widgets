@@ -1,11 +1,7 @@
 /**
  * =================================================================
- * 🖥️ Server Monitor Widget Pro (简洁高可用完美收官版)
+ * 🖥️ Server Monitor Widget Pro (完美闭环终结版)
  * =================================================================
- * 收官设计哲学：
- * 1. 核心精髓内聚：保留 find 进程计数防爆炸、双栈 IP 自适应、容器磁盘及网卡过滤。
- * 2. 移除过度防御：去除外层嵌套的重试与限时熔断，依靠系统原生底层机制，降低维护成本。
- * 3. 完美兼容性补全：保障老内核降级，并在流量统计中完美闭环重启/溢出置零检测。
  */
 
 export default async function (ctx) {
@@ -33,7 +29,6 @@ export default async function (ctx) {
     
     cpu: { light: '#34C759', dark: '#30D158' },      
     mem: { light: '#007AFF', dark: '#0A84FF' },      
-    swap: { light: '#AF52DE', dark: '#BF5AF2' },     
     disk: { light: '#FF9500', dark: '#FF9F0A' },     
   };
 
@@ -72,13 +67,11 @@ export default async function (ctx) {
   let d;
   try {
     const { host, port, username, password, privateKey, widgetName, bwhVeid, bwhApiKey, trafficLimitGB, resetDay } = SERVER_CONFIG;
-    
     if (!host) throw new Error('未配置 SERVER_HOST');
 
     const safeHost = encodeURIComponent(host);
     const storageVer = 'v2_'; 
 
-    // 私钥处理
     let finalKey = privateKey;
     if (privateKey && typeof privateKey === 'string') {
       const raw = privateKey.trim();
@@ -110,6 +103,7 @@ export default async function (ctx) {
     });
 
     const SEP = '<<SEP>>';
+    // 💡 采用分号隔离，加入第 10 项 uptime -p
     const cmds = [
       'hostname -s 2>/dev/null || hostname',
       'cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
@@ -119,7 +113,8 @@ export default async function (ctx) {
       'nproc 2>/dev/null || echo "1"',
       "curl -4 -s -m 2 ipv4.ip.sb || curl -6 -s -m 2 ipv6.ip.sb || echo ''",
       "awk '/^[ ]*[a-z]/ && !/^(lo|veth|docker|br-|zt|tailscale)/ {sub(/.*:/, \"\"); rx+=$1; tx+=$9} END{print rx,tx}' /proc/net/dev 2>/dev/null || echo '0 0'",
-      'echo /proc/[0-9]* 2>/dev/null | wc -w || echo "0"'
+      'find /proc -maxdepth 1 -type d -regex \'.*/[0-9]+\' 2>/dev/null | wc -l || echo "0"',
+      'uptime -p 2>/dev/null || echo "up 1 hour"'
     ];
 
     const { stdout } = await session.exec(cmds.join(` ; echo '${SEP}' ; `));
@@ -131,7 +126,7 @@ export default async function (ctx) {
     const loadArr = (p[1] || '0 0 0').split(' ').slice(0, 3);
     const loadStr = `${loadArr[0]} ${loadArr[1]} ${loadArr[2]}`;
 
-    // CPU 计算 (融合理性 iowait)
+    // CPU 计算
     const load1 = parseFloat(loadArr[0]) || 0;
     const cores = parseInt(p[5]) || 1;
     const cpuNums = (p[2] || '').replace(/^cpu\s+/, '').split(/\s+/).map(Number);
@@ -147,7 +142,7 @@ export default async function (ctx) {
     ctx.storage.setJSON(`${storageVer}cpu_${safeHost}`, { t: cpuTotal, i: cpuIdle });
     cpuPct = Math.max(0, Math.min(100, cpuPct));
 
-    // MEM & SWAP (自适应降级老旧内核)
+    // MEM 计算
     const memInfo = (p[3] || '0 0 0 0 0').split(' ').map(Number);
     const memTotal = memInfo[0] * 1024 || 1;
     let memAvailable = memInfo[1] * 1024 || 0;
@@ -157,7 +152,7 @@ export default async function (ctx) {
     const memUsed = memTotal - memAvailable;
     const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100));
 
-    // DISK (由于 --output 格式固定，直接依倒数顺序切片获取，剔除百分号干扰)
+    // DISK 计算
     const df = (p[4] || '').split(/\s+/);
     const diskTotal = Number(df[df.length - 3]) || 1;
     const diskUsed = Number(df[df.length - 2]) || 0;
@@ -182,8 +177,12 @@ export default async function (ctx) {
     ctx.storage.setJSON(`${storageVer}net_${safeHost}`, { rx: netRx, tx: netTx, ts: now });
 
     const processesCount = parseInt(p[8]) || 0;
+    
+    // 💡 运行时间精简格式化：将 "up 2 weeks, 3 days" 缩短为 "up 2w 3d"
+    const uptimeRaw = p[9] || 'up 1 hour';
+    const uptimeStr = uptimeRaw.replace('weeks', 'w').replace('week', 'w').replace('days', 'd').replace('day', 'd').replace('hours', 'h').replace('hour', 'h').replace(/,\s*/g, ' ');
 
-    // === 流量周期统计 ===
+    // 流量周期统计
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '';
     const trafficKey = `${storageVer}traffic_${safeHost}_${resetDay}`;
     const prevTraffic = ctx.storage.getJSON(trafficKey);
@@ -232,13 +231,12 @@ export default async function (ctx) {
       hostname, loadStr, cpuPct, cores,
       memTotal, memUsed, memPct, processesCount,
       diskTotal, diskUsed, diskPct, 
-      rxRate, txRate, tfUsed, tfTotal, tfPct, tfReset, timeStr, ipInfo
+      rxRate, txRate, tfUsed, tfTotal, tfPct, tfReset, timeStr, uptimeStr, ipInfo
     };
   } catch (e) {
     d = { error: String(e.message || e) };
   }
 
-  // 视网膜精细分段进度条
   const segCount = ctx.widgetFamily === 'systemSmall' ? 18 : 24;
   const bar = (pct, color, h = 6) => {
     const activeCount = Math.round((Math.max(0, Math.min(100, pct)) / 100) * segCount);
@@ -293,9 +291,11 @@ export default async function (ctx) {
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [
         { type: 'image', src: 'sf-symbol:server.rack', color: C.text, width: 15, height: 15 },
         { type: 'text', text: d.hostname, font: { size: 14, weight: 'bold' }, textColor: C.text },
+        // 💡 完美的左侧名字 + 你的 16:57 刷新整点时间
         { type: 'text', text: `•  ${d.timeStr}`, font: { size: 10 }, textColor: C.dim }, 
         { type: 'spacer' },
-        { type: 'text', text: `Load: ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+        // 💡 完美的右侧：运行时间与负载并列，极其协调
+        { type: 'text', text: `${d.uptimeStr}  •  Load: ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
       ]},
 
       { type: 'stack', direction: 'column', gap: 7, children: [
@@ -305,8 +305,6 @@ export default async function (ctx) {
             { type: 'text', text: `CPU ${d.cores}C`, font: { size: 11.5, weight: 'bold' }, textColor: C.text },
             { type: 'spacer' },
             { type: 'text', text: `${d.cpuPct}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: C.cpu },
-            { type: 'spacer' },
-            { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s ↑${fmtBytes(d.txRate)}/s`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
           ]},
           bar(d.cpuPct, C.cpu, 6)
         ]},
@@ -335,14 +333,14 @@ export default async function (ctx) {
           bar(d.diskPct, C.disk, 6)
         ]},
 
-        // TRAFFIC
+        // TRAFFIC (实时速率稳稳吸附在此处)
         { type: 'stack', direction: 'column', gap: 3, children: [
           { type: 'stack', direction: 'row', alignItems: 'center', children: [
             { type: 'text', text: 'TRAFFIC', font: { size: 11.5, weight: 'bold' }, textColor: C.text },
             { type: 'spacer' },
             { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
             { type: 'spacer' },
-            { type: 'text', text: `${fmtBytes(d.tfUsed)}/${fmtBytes(d.tfTotal)}`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
+            { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s ↑${fmtBytes(d.txRate)}/s  (${fmtBytes(d.tfUsed)}/${fmtBytes(d.tfTotal)})`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
           ]},
           bar(d.tfPct, getTrafficColor(d.tfPct), 6)
         ]}
