@@ -1,4 +1,4 @@
-// Server Monitor Widget — Tailored Localized Edition
+// Server Monitor Widget — Perfect Localized Edition
 export default async function (ctx) {
 
   // ─── Helpers ────────────────────────────────
@@ -20,16 +20,46 @@ export default async function (ctx) {
     return `${next.getMonth() + 1}月${next.getDate()}日`;
   };
 
-  // 🛠️ 优化功能：将 linux 的 uptime 翻译转换为 "X天Y小时" 紧凑格式
+  // 🛠️ 终极完美核心：解析 Linux 复杂的 uptime，把 weeks / days 自动合并计算为纯天数
   const formatUptime = (rawStr) => {
     let clean = rawStr.replace(/^up\s+/, '').replace(/,\s*$/, '').trim();
     if (!clean || clean === 'unknown') return '—';
+
+    let totalDays = 0;
+    let hours = 0;
+    let minutes = 0;
+
+    // 1. 匹配并提取 weeks 数量
+    const weekMatch = clean.match(/(\d+)\s+weeks?/);
+    if (weekMatch) {
+      totalDays += parseInt(weekMatch[1]) * 7;
+    }
+
+    // 2. 匹配并提取 days 数量
+    const dayMatch = clean.match(/(\d+)\s+days?/);
+    if (dayMatch) {
+      totalDays += parseInt(dayMatch[1]);
+    }
+
+    // 3. 匹配并提取 hours 数量
+    const hourMatch = clean.match(/(\d+)\s+hours?/);
+    if (hourMatch) {
+      hours = parseInt(hourMatch[1]);
+    }
+
+    // 4. 匹配并提取 minutes 数量
+    const minMatch = clean.match(/(\d+)\s+minutes?/);
+    if (minMatch) {
+      minutes = parseInt(minMatch[1]);
+    }
+
+    // 5. 组合成直观的中文样式
+    let result = '';
+    if (totalDays > 0) result += `${totalDays}天`;
+    if (hours > 0)     result += `${hours}小时`;
+    if (minutes > 0 && totalDays === 0) result += `${minutes}分钟`; // 天数很大时隐藏分钟，防止排版拥挤
     
-    clean = clean.replace(/(\d+)\s+days?/, '$1天')
-                 .replace(/(\d+)\s+hours?/, '$1小时')
-                 .replace(/(\d+)\s+minutes?/, '$1分钟')
-                 .replace(/,\s*/g, ''); 
-    return clean;
+    return result || '刚刚开机';
   };
 
   // 🛠️ 优化功能：生成本地精确定格的 "刷新于 17:49:44" 时间文本
@@ -106,7 +136,7 @@ export default async function (ctx) {
     const la = (parseOutput(stdout, 1) || '0 0 0').split(' ');
     const load = [la[0] || '0', la[1] || '0', la[2] || '0'];
     
-    // 应用时间中文转换格式
+    // 应用全新升级的时间转换
     const uptime = formatUptime(parseOutput(stdout, 2));
 
     const cpuStr = parseOutput(stdout, 3) || 'cpu 0 0 0 0';
@@ -268,7 +298,6 @@ export default async function (ctx) {
     ],
   });
 
-  // 🛠️ 核心修改：左下角改为显示 "刷新于 HH:MM:SS" 格式
   const makeFooter = () => ({
     type: 'stack', direction: 'row', alignItems: 'center', children: [
       { type: 'text', text: getRefreshTimeString(), font: { size: 'caption2' }, textColor: C.dim },
