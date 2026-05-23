@@ -105,7 +105,7 @@ export default async function (ctx) {
       'hostname -s 2>/dev/null || hostname',
       'cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
       'head -1 /proc/stat 2>/dev/null || echo ""',
-      "awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}/SwapTotal/{st=$2}/SwapFree/{sf=$2}END{print t,a,f,b,c,st,sf}' /proc/meminfo 2>/dev/null || echo '0 0 0 0 0 0 0'",
+      "awk '/^MemTotal/{t=$2}/^MemAvailable/{a=$2}/^MemFree/{f=$2}/^Buffers/{b=$2}/^Cached:/{c=$2}/^SwapTotal/{st=$2}/^SwapFree/{sf=$2}END{print t,a,f,b,c,st,sf}' /proc/meminfo 2>/dev/null || echo '0 0 0 0 0 0 0'",
       'LANG=C df -B1 --output=size,used,pcent / 2>/dev/null | tail -1 || echo ""',
       'nproc 2>/dev/null || echo "1"',
       "curl -4 -s -m 2 ipv4.ip.sb || curl -6 -s -m 2 ipv6.ip.sb || echo ''",
