@@ -38,11 +38,15 @@ env_schema:
     name: 流量重置日
     description: "每月流量重置日期，默认 1 号"
     default_value: "1"
+  MASK_IP:
+    name: IP 打码
+    description: "是否隐藏 IP 后两段（true / false）"
+    default_value: "false"
 
 scriptings:
 - generic:
     name: 服务器监控Merged
-    # ⚠️ 请将下方网址修改为你自己 GitHub 仓库里 Server.js 的真实 Raw 链接
+    # 💡 关键修改：请确保此处的 URL 能够正确下载到你刚刚上传的那份优化版 5Server.js 纯文本代码
     script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/Server.js
 
 widgets:
