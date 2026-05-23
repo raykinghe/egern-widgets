@@ -276,7 +276,7 @@ export default async function (ctx) {
 
   // Medium 布局
   return {
-    type: 'widget', backgroundColor: C.bg, padding: [14, 16], gap: 8,
+    type: 'widget', backgroundColor: C.bg, padding: [12, 16], gap: 6,
     children: [
       // 标题行：hostname 左，时间右
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [
@@ -308,7 +308,7 @@ export default async function (ctx) {
           { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         ]},
         bar(d.memPct, C.mem, 5),
-        ...(d.swapTotal > 0 ? [
+        ...(d.swapUsed > 0 ? [
           { type: 'stack', direction: 'row', alignItems: 'center', children: [
             { type: 'text', text: 'Swap ', font: { size: 11, weight: 'medium' }, textColor: C.swap },
             { type: 'text', text: `${d.swapPct}%`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
