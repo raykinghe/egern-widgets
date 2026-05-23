@@ -309,24 +309,27 @@ export default async function (ctx) {
           bar(d.memPct, C.mem, 6)
         ]},
 
-        { type: 'stack', direction: 'row', gap: 8, children: [
-          { type: 'stack', flex: 1, direction: 'column', gap: 3, children: [
-            { type: 'stack', direction: 'row', alignItems: 'center', children: [
-              { type: 'text', text: 'DISK', font: { size: 11, weight: 'bold' }, textColor: C.text },
-              { type: 'spacer' },
-              { type: 'text', text: `${d.diskPct}%`, font: { size: 11.5, weight: 'heavy', family: 'Menlo' }, textColor: C.disk },
-            ]},
-            bar(d.diskPct, C.disk, 6)
+        { type: 'stack', direction: 'column', gap: 3, children: [
+          { type: 'stack', direction: 'row', alignItems: 'center', children: [
+            { type: 'text', text: 'DISK', font: { size: 11.5, weight: 'bold' }, textColor: C.text },
+            { type: 'spacer' },
+            { type: 'text', text: `${d.diskPct}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: C.disk },
+            { type: 'spacer' },
+            { type: 'text', text: `${fmtBytes(d.diskUsed)}/${fmtBytes(d.diskTotal)}`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
           ]},
-          ...(d.swapTotal > 0 ? [{ type: 'stack', flex: 1, direction: 'column', gap: 3, children: [
-            { type: 'stack', direction: 'row', alignItems: 'center', children: [
-              { type: 'text', text: 'SWAP', font: { size: 11, weight: 'bold' }, textColor: C.text },
-              { type: 'spacer' },
-              { type: 'text', text: `${d.swapPct}%`, font: { size: 11.5, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
-            ]},
-            bar(d.swapPct, C.swap, 6)
-          ]}] : [])
+          bar(d.diskPct, C.disk, 6)
         ]},
+
+        ...(d.swapTotal > 0 ? [{ type: 'stack', direction: 'column', gap: 3, children: [
+          { type: 'stack', direction: 'row', alignItems: 'center', children: [
+            { type: 'text', text: 'SWAP', font: { size: 11.5, weight: 'bold' }, textColor: C.text },
+            { type: 'spacer' },
+            { type: 'text', text: `${d.swapPct}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
+            { type: 'spacer' },
+            { type: 'text', text: `${fmtBytes(d.swapUsed)}/${fmtBytes(d.swapTotal)}`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
+          ]},
+          bar(d.swapPct, C.swap, 6)
+        ]}] : []),
 
         { type: 'stack', direction: 'column', gap: 3, children: [
           { type: 'stack', direction: 'row', alignItems: 'center', children: [
