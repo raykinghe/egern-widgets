@@ -110,7 +110,8 @@ export default async function (ctx) {
       'nproc 2>/dev/null || echo "1"',
       "curl -4 -s -m 2 ipv4.ip.sb || curl -6 -s -m 2 ipv6.ip.sb || echo ''",
       "awk '/^[ ]*[a-z]/ && !/^(lo|veth|docker|br-|zt|tailscale)/ {sub(/.*:/, \"\"); rx+=$1; tx+=$9} END{print rx,tx}' /proc/net/dev 2>/dev/null || echo '0 0'",
-      'echo /proc/[0-9]* 2>/dev/null | wc -w || echo "0"'
+      'echo /proc/[0-9]* 2>/dev/null | wc -w || echo "0"',
+      "awk '{s=$1; d=int(s/86400); h=int((s%86400)/3600); m=int((s%3600)/60); if(d>0) printf \"%dd %dh\",d,h; else if(h>0) printf \"%dh %dm\",h,m; else printf \"%dm\",m}' /proc/uptime 2>/dev/null || echo ''"
     ];
 
     const { stdout } = await session.exec(cmds.join(` ; echo '${SEP}' ; `));
@@ -182,6 +183,7 @@ export default async function (ctx) {
     ctx.storage.setJSON(`_net_${host}`, { rx: netRx, tx: netTx, ts: now });
 
     const processesCount = parseInt(p[8]) || 0;
+    const uptimeStr = p[9] || '';
 
     // 流量统计（真实账单周期 + 重启检测）
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '';
@@ -221,7 +223,8 @@ export default async function (ctx) {
       hostname, loadStr, cpuPct, cores,
       memTotal, memUsed, memPct, swapTotal, swapUsed, swapPct,
       diskTotal, diskUsed, diskPct, processesCount,
-      rxRate, txRate, tfUsed, tfTotal, tfPct, tfReset, timeStr, ipInfo
+      rxRate, txRate, tfUsed, tfTotal, tfPct, tfReset, timeStr, ipInfo,
+      processesCount, uptimeStr
     };
   } catch (e) {
     d = { error: String(e.message || e) };
@@ -308,7 +311,7 @@ export default async function (ctx) {
           { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         ]},
         bar(d.memPct, C.mem, 5),
-        ...(d.swapUsed > 0 ? [
+        ...(d.swapUsed > 10 * 1024 * 1024 ? [
           { type: 'stack', direction: 'row', alignItems: 'center', children: [
             { type: 'text', text: 'Swap ', font: { size: 11, weight: 'medium' }, textColor: C.swap },
             { type: 'text', text: `${d.swapPct}%`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
@@ -331,7 +334,7 @@ export default async function (ctx) {
         bar(d.diskPct, C.disk, 5),
       ]},
 
-      // Network 块：图标+Network 左，网速 右；第二行 总流量用量
+      // Network 块：实时网速；第二行流量百分比+用量；第三行 IP+重置
       { type: 'stack', direction: 'column', gap: 3, children: [
         { type: 'stack', direction: 'row', alignItems: 'center', children: [
           { type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: getTrafficColor(d.tfPct), width: 13, height: 13 },
@@ -340,9 +343,19 @@ export default async function (ctx) {
           { type: 'text', text: `↓${fmtBytes(d.rxRate)}  ↑${fmtBytes(d.txRate)}`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
         ]},
         { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'text', text: `流量 ${d.tfPct.toFixed(1)}%`, font: { size: 10, family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
+          { type: 'spacer' },
+          { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+        ]},
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
           { type: 'text', text: d.ipInfo, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
           { type: 'spacer' },
-          { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}  重置 ${d.tfReset}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+          { type: 'text', text: `重置 ${d.tfReset}`, font: { size: 10 }, textColor: C.dim },
+        ]},
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'text', text: d.uptimeStr, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+          { type: 'spacer' },
+          { type: 'text', text: `${d.processesCount} processes`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         ]},
       ]},
     ]
