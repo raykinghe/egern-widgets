@@ -25,7 +25,5 @@ scriptings:
     script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/Server.js
 
 widgets:
-- name: 服务器1
-  script_name: 服务器监控
-- name: 服务器2
+- name: 服务器
   script_name: 服务器监控
