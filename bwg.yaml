@@ -46,7 +46,7 @@ env_schema:
 scriptings:
 - generic:
     name: 服务器监控Merged
-    script_url: https://raw.githubusercontent.com/your-repo/server-monitor-merged.js
+    script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/Server.js
 
 widgets:
 - name: 服务器监控
