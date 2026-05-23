@@ -267,7 +267,7 @@ export default async function (ctx) {
       { type: 'text', text: ` 刷新于 ${d.timeStr}`, font: { size: 9, weight: 'medium' }, textColor: C.dim },
       { type: 'spacer' },
       { type: 'image', src: 'sf-symbol:calendar', color: C.dim, width: 9, height: 9 },
-      { type: 'text', text: ` 重置: ${d.tfReset}`, font: { size: 9, family: 'Menlo' }, textColor: C.dim },
+      { type: 'text', text: ` 流量重置: ${d.tfReset}`, font: { size: 9, family: 'Menlo' }, textColor: C.dim },
     ],
   };
 
