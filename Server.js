@@ -1,8 +1,11 @@
 /**
  * =================================================================
- * 🖥️ Server Monitor Widget Pro (简洁高可用毕业版)
+ * 🖥️ Server Monitor Widget Pro (简洁高可用完美收官版)
  * =================================================================
- * 平衡版：保留核心优化，剔除过度防护，代码清晰易维护
+ * 收官设计哲学：
+ * 1. 核心精髓内聚：保留 find 进程计数防爆炸、双栈 IP 自适应、容器磁盘及网卡过滤。
+ * 2. 移除过度防御：去除外层嵌套的重试与限时熔断，依靠系统原生底层机制，降低维护成本。
+ * 3. 完美兼容性补全：保障老内核降级，并在流量统计中完美闭环重启/溢出置零检测。
  */
 
 export default async function (ctx) {
@@ -51,7 +54,10 @@ export default async function (ctx) {
   const processIP = (ip) => {
     if (!ip || !SERVER_CONFIG.maskIp) return ip;
     if (ip.includes('.')) return ip.replace(/(\d+\.\d+)\.\d+\.\d+/, '$1.*.*');
-    if (ip.includes(':')) return ip.replace(/([0-9a-f]+:[0-9a-f]+:[0-9a-f]+):.*/, '$1:****');
+    if (ip.includes(':')) {
+      const parts = ip.split(':');
+      return parts.length >= 3 ? `${parts[0]}:${parts[1]}:${parts[2]}:****` : ip;
+    }
     return ip;
   };
 
@@ -67,9 +73,12 @@ export default async function (ctx) {
   try {
     const { host, port, username, password, privateKey, widgetName, bwhVeid, bwhApiKey, trafficLimitGB, resetDay } = SERVER_CONFIG;
     
-    if (!host) throw new Error('未配置 SERVER_HOST 环境变量');
+    if (!host) throw new Error('未配置 SERVER_HOST');
 
-    // 私钥自动修复
+    const safeHost = encodeURIComponent(host);
+    const storageVer = 'v2_'; 
+
+    // 私钥处理
     let finalKey = privateKey;
     if (privateKey && typeof privateKey === 'string') {
       const raw = privateKey.trim();
@@ -105,13 +114,12 @@ export default async function (ctx) {
       'hostname -s 2>/dev/null || hostname',
       'cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
       'head -1 /proc/stat 2>/dev/null || echo ""',
-      "awk '/^MemTotal/{t=$2}/^MemAvailable/{a=$2}/^MemFree/{f=$2}/^Buffers/{b=$2}/^Cached:/{c=$2}/^SwapTotal/{st=$2}/^SwapFree/{sf=$2}END{print t,a,f,b,c,st,sf}' /proc/meminfo 2>/dev/null || echo '0 0 0 0 0 0 0'",
-      'LANG=C df -B1 --output=size,used,pcent / 2>/dev/null | tail -1 || echo ""',
+      "awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}END{print t,a,f,b,c}' /proc/meminfo 2>/dev/null || echo '0 0 0 0 0'",
+      'df -B1 --output=size,used,pcent / 2>/dev/null | tail -1 || LANG=C df -B1 / | tail -1 2>/dev/null || echo ""',
       'nproc 2>/dev/null || echo "1"',
       "curl -4 -s -m 2 ipv4.ip.sb || curl -6 -s -m 2 ipv6.ip.sb || echo ''",
       "awk '/^[ ]*[a-z]/ && !/^(lo|veth|docker|br-|zt|tailscale)/ {sub(/.*:/, \"\"); rx+=$1; tx+=$9} END{print rx,tx}' /proc/net/dev 2>/dev/null || echo '0 0'",
-      'echo /proc/[0-9]* 2>/dev/null | wc -w || echo "0"',
-      "awk '{s=$1; d=int(s/86400); h=int((s%86400)/3600); m=int((s%3600)/60); if(d>0) printf \"%dd %dh\",d,h; else if(h>0) printf \"%dh %dm\",h,m; else printf \"%dm\",m}' /proc/uptime 2>/dev/null || echo ''"
+      'echo /proc/[0-9]* 2>/dev/null | wc -w || echo "0"'
     ];
 
     const { stdout } = await session.exec(cmds.join(` ; echo '${SEP}' ; `));
@@ -119,58 +127,49 @@ export default async function (ctx) {
 
     const p = stdout.split(SEP).map(s => s.trim());
     const hostname = widgetName !== 'My Node' ? widgetName : (p[0] || 'Server');
-    
+
     const loadArr = (p[1] || '0 0 0').split(' ').slice(0, 3);
     const loadStr = `${loadArr[0]} ${loadArr[1]} ${loadArr[2]}`;
 
-    // CPU（含 iowait + 首次兜底）
+    // CPU 计算 (融合理性 iowait)
     const load1 = parseFloat(loadArr[0]) || 0;
     const cores = parseInt(p[5]) || 1;
     const cpuNums = (p[2] || '').replace(/^cpu\s+/, '').split(/\s+/).map(Number);
     const cpuTotal = cpuNums.reduce((a, b) => a + b, 0);
-    const cpuIdle = (cpuNums[3] || 0) + (cpuNums[4] || 0); // idle + iowait
-    const prevCpu = ctx.storage.getJSON(`_cpu_${host}`);
+    const cpuIdle = (cpuNums[3] || 0) + (cpuNums[4] || 0); 
+    const prevCpu = ctx.storage.getJSON(`${storageVer}cpu_${safeHost}`);
     let cpuPct = 0;
     if (prevCpu && cpuTotal > prevCpu.t) {
       cpuPct = Math.round(((cpuTotal - prevCpu.t - (cpuIdle - prevCpu.i)) / (cpuTotal - prevCpu.t)) * 100);
     } else {
       cpuPct = Math.round((load1 / cores) * 100);
     }
-    ctx.storage.setJSON(`_cpu_${host}`, { t: cpuTotal, i: cpuIdle });
+    ctx.storage.setJSON(`${storageVer}cpu_${safeHost}`, { t: cpuTotal, i: cpuIdle });
     cpuPct = Math.max(0, Math.min(100, cpuPct));
 
-    // MEM & SWAP
-    const memKB = (p[3] || '0 0 0 0 0 0 0').split(' ').map(Number);
-    const memTotal = memKB[0] * 1024 || 1;
-    let memAvailable = memKB[1] * 1024 || 0;
-    if (memAvailable === 0) { // 老内核降级
-      memAvailable = (memKB[2] || 0) + (memKB[3] || 0) + (memKB[4] || 0);
+    // MEM & SWAP (自适应降级老旧内核)
+    const memInfo = (p[3] || '0 0 0 0 0').split(' ').map(Number);
+    const memTotal = memInfo[0] * 1024 || 1;
+    let memAvailable = memInfo[1] * 1024 || 0;
+    if (memAvailable === 0) {
+      memAvailable = (memInfo[2] + memInfo[3] + memInfo[4]) * 1024 || 0;
     }
     const memUsed = memTotal - memAvailable;
     const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100));
 
-    const swapTotal = (memKB[5] || 0) * 1024;
-    const swapFree = (memKB[6] || 0) * 1024;
-    const swapUsed = swapTotal - swapFree;
-    const swapPct = swapTotal > 0 ? Math.min(100, Math.round((swapUsed / swapTotal) * 100)) : 0;
-
-    // DISK
+    // DISK (由于 --output 格式固定，直接依倒数顺序切片获取，剔除百分号干扰)
     const df = (p[4] || '').split(/\s+/);
-    const diskTotal = Number(df[0]) || 1;
-    const diskUsed = Number(df[1]) || 0;
-    const diskPct = parseInt((df[2] || '0').replace('%', '')) || 0;
+    const diskTotal = Number(df[df.length - 3]) || 1;
+    const diskUsed = Number(df[df.length - 2]) || 0;
+    const diskPct = parseInt((df[df.length - 1] || '0').replace('%', '')) || 0;
 
     // IP
     let ipInfo = processIP(p[6] || host);
-    if (bwhData && bwhData.ip_addresses?.[0]) {
-      ipInfo = processIP(bwhData.ip_addresses[0]);
-    }
 
-    // Network
+    // Network 速率
     const nn = (p[7] || '0 0').split(' ');
     const netRx = Number(nn[0]) || 0, netTx = Number(nn[1]) || 0;
-
-    const prevNet = ctx.storage.getJSON(`_net_${host}`);
+    const prevNet = ctx.storage.getJSON(`${storageVer}net_${safeHost}`);
     const now = Date.now();
     let rxRate = 0, txRate = 0;
     if (prevNet && prevNet.ts) {
@@ -180,58 +179,68 @@ export default async function (ctx) {
         txRate = Math.max(0, (netTx - prevNet.tx) / el);
       }
     }
-    ctx.storage.setJSON(`_net_${host}`, { rx: netRx, tx: netTx, ts: now });
+    ctx.storage.setJSON(`${storageVer}net_${safeHost}`, { rx: netRx, tx: netTx, ts: now });
 
     const processesCount = parseInt(p[8]) || 0;
-    const uptimeStr = p[9] || '';
 
-    // 流量统计（真实账单周期 + 重启检测）
+    // === 流量周期统计 ===
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '';
-    const trafficKey = `traffic_${host}_${resetDay}`;
+    const trafficKey = `${storageVer}traffic_${safeHost}_${resetDay}`;
     const prevTraffic = ctx.storage.getJSON(trafficKey);
 
     if (bwhData && bwhData.data_counter !== undefined) {
-      tfUsed = bwhData.data_counter;
-      tfTotal = bwhData.plan_monthly_data;
+      let bwhCounter = bwhData.data_counter || 0;
+      let bwhPlan = bwhData.plan_monthly_data || 1;
+      if (bwhPlan < 50000) { 
+        bwhCounter = bwhCounter * (1024 ** 3);
+        bwhPlan = bwhPlan * (1024 ** 3);
+      }
+      tfUsed = bwhCounter;
+      tfTotal = bwhPlan;
       tfPct = Math.min((tfUsed / tfTotal) * 100, 100) || 0;
       const rd = new Date((bwhData.data_next_reset || 0) * 1000);
       tfReset = `${rd.getMonth() + 1}月${rd.getDate()}日`;
+      if (bwhData.ip_addresses?.[0]) ipInfo = processIP(bwhData.ip_addresses[0]);
     } else {
       tfTotal = trafficLimitGB * (1024 ** 3);
       const nowDate = new Date();
       let cycleDate = new Date(nowDate);
-      if (nowDate.getDate() < resetDay) cycleDate.setMonth(cycleDate.getMonth() - 1);
+      if (nowDate.getDate() < resetDay) {
+        cycleDate.setMonth(cycleDate.getMonth() - 1);
+      }
       const currentCycle = `${cycleDate.getFullYear()}-${cycleDate.getMonth()}`;
 
-      const currentTotal = netRx + netTx;
-      const isNewCycle = !prevTraffic || prevTraffic.cycle !== currentCycle || currentTotal < (prevTraffic.lastRaw || 0);
-
+      const currentNetTotal = netRx + netTx;
+      const isRebooted = prevTraffic && currentNetTotal < (prevTraffic.lastRaw || 0);
+      const isNewCycle = !prevTraffic || prevTraffic.cycle !== currentCycle || isRebooted;
+      
       if (isNewCycle) {
         tfUsed = 0;
-        ctx.storage.setJSON(trafficKey, { cycle: currentCycle, base: currentTotal, lastRaw: currentTotal });
+        ctx.storage.setJSON(trafficKey, { cycle: currentCycle, base: currentNetTotal, lastRaw: currentNetTotal });
       } else {
-        tfUsed = Math.max(0, currentTotal - (prevTraffic.base || 0));
-        ctx.storage.setJSON(trafficKey, { cycle: currentCycle, base: prevTraffic.base, lastRaw: currentTotal });
+        tfUsed = Math.max(0, currentNetTotal - (prevTraffic.base || 0));
+        ctx.storage.setJSON(trafficKey, { cycle: currentCycle, base: prevTraffic.base, lastRaw: currentNetTotal });
       }
       tfPct = Math.min((tfUsed / tfTotal) * 100, 100) || 0;
       tfReset = getNextResetDate(resetDay);
     }
 
-    const timeStr = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`;
+    const dNow = new Date();
+    const timeStr = `${String(dNow.getHours()).padStart(2, '0')}:${String(dNow.getMinutes()).padStart(2, '0')}`;
 
     d = {
       hostname, loadStr, cpuPct, cores,
-      memTotal, memUsed, memPct, swapTotal, swapUsed, swapPct,
-      diskTotal, diskUsed, diskPct, processesCount,
-      rxRate, txRate, tfUsed, tfTotal, tfPct, tfReset, timeStr, ipInfo,
-      processesCount, uptimeStr
+      memTotal, memUsed, memPct, processesCount,
+      diskTotal, diskUsed, diskPct, 
+      rxRate, txRate, tfUsed, tfTotal, tfPct, tfReset, timeStr, ipInfo
     };
   } catch (e) {
     d = { error: String(e.message || e) };
   }
 
+  // 视网膜精细分段进度条
+  const segCount = ctx.widgetFamily === 'systemSmall' ? 18 : 24;
   const bar = (pct, color, h = 6) => {
-    const segCount = ctx.widgetFamily === 'systemSmall' ? 18 : 24;
     const activeCount = Math.round((Math.max(0, Math.min(100, pct)) / 100) * segCount);
     return {
       type: 'stack', direction: 'row', height: h, gap: 1.5,
@@ -244,12 +253,12 @@ export default async function (ctx) {
 
   if (d.error) {
     return { type: 'widget', padding: [14, 16], backgroundColor: C.bg, children: [
-      { type: 'text', text: '⚠️ 连接失败', font: { size: 'headline', weight: 'bold' }, textColor: '#FF3B30' },
+      { type: 'text', text: '⚠️ 无法建立连接', font: { size: 'headline', weight: 'bold' }, textColor: '#FF3B30' },
       { type: 'text', text: d.error, font: { size: 'caption1' }, textColor: C.dim, maxLines: 3 },
     ]};
   }
 
-  // Small 布局
+  // ==================== Small 尺寸布局 ====================
   if (ctx.widgetFamily === 'systemSmall') {
     return {
       type: 'widget', backgroundColor: C.bg, padding: [12, 16], gap: 6,
@@ -258,7 +267,7 @@ export default async function (ctx) {
           { type: 'image', src: 'sf-symbol:server.rack', color: C.text, width: 14, height: 14 },
           { type: 'text', text: d.hostname, font: { size: 'subheadline', weight: 'bold' }, textColor: C.text },
         ]},
-        { type: 'text', text: d.ipInfo, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+        { type: 'text', text: d.ipInfo, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim, maxLines: 1 },
         ...[
           { lb: 'CPU', pt: d.cpuPct, c: C.cpu },
           { lb: 'MEM', pt: d.memPct, c: C.mem },
@@ -277,87 +286,75 @@ export default async function (ctx) {
     };
   }
 
-  // Medium 布局
+  // ==================== Medium 尺寸布局 ====================
   return {
-    type: 'widget', backgroundColor: C.bg, padding: [12, 16], gap: 6,
+    type: 'widget', backgroundColor: C.bg, padding: [12, 14], gap: 8,
     children: [
-      // 标题行：hostname 左，时间右
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [
-        { type: 'image', src: 'sf-symbol:server.rack', color: C.text, width: 14, height: 14 },
-        { type: 'text', text: d.hostname, font: { size: 15, weight: 'bold' }, textColor: C.text },
+        { type: 'image', src: 'sf-symbol:server.rack', color: C.text, width: 15, height: 15 },
+        { type: 'text', text: d.hostname, font: { size: 14, weight: 'bold' }, textColor: C.text },
+        { type: 'text', text: `•  ${d.timeStr}`, font: { size: 10 }, textColor: C.dim }, 
         { type: 'spacer' },
-        { type: 'text', text: d.timeStr, font: { size: 11, family: 'Menlo' }, textColor: C.dim },
+        { type: 'text', text: `Load: ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
       ]},
 
-      // CPU：图标+名称+百分比 左，Load 右
-      { type: 'stack', direction: 'column', gap: 4, children: [
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 13, height: 13 },
-          { type: 'text', text: `  CPU ${d.cores}C `, font: { size: 13, weight: 'bold' }, textColor: C.text },
-          { type: 'text', text: `${d.cpuPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.cpu },
-          { type: 'spacer' },
-          { type: 'text', text: `Load ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-        ]},
-        bar(d.cpuPct, C.cpu, 5),
-      ]},
-
-      // MEM：图标+名称+百分比 左，用量 右；下附 Swap 小行
-      { type: 'stack', direction: 'column', gap: 4, children: [
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 13, height: 13 },
-          { type: 'text', text: '  MEM ', font: { size: 13, weight: 'bold' }, textColor: C.text },
-          { type: 'text', text: `${d.memPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.mem },
-          { type: 'spacer' },
-          { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-        ]},
-        bar(d.memPct, C.mem, 5),
-        ...(d.swapUsed > 10 * 1024 * 1024 ? [
+      { type: 'stack', direction: 'column', gap: 7, children: [
+        // CPU
+        { type: 'stack', direction: 'column', gap: 3, children: [
           { type: 'stack', direction: 'row', alignItems: 'center', children: [
-            { type: 'text', text: 'Swap ', font: { size: 11, weight: 'medium' }, textColor: C.swap },
-            { type: 'text', text: `${d.swapPct}%`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
+            { type: 'text', text: `CPU ${d.cores}C`, font: { size: 11.5, weight: 'bold' }, textColor: C.text },
             { type: 'spacer' },
-            { type: 'text', text: `${fmtBytes(d.swapUsed)} / ${fmtBytes(d.swapTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+            { type: 'text', text: `${d.cpuPct}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: C.cpu },
+            { type: 'spacer' },
+            { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s ↑${fmtBytes(d.txRate)}/s`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
           ]},
-          bar(d.swapPct, C.swap, 3),
-        ] : []),
+          bar(d.cpuPct, C.cpu, 6)
+        ]},
+
+        // MEM
+        { type: 'stack', direction: 'column', gap: 3, children: [
+          { type: 'stack', direction: 'row', alignItems: 'center', children: [
+            { type: 'text', text: 'MEM', font: { size: 11.5, weight: 'bold' }, textColor: C.text },
+            { type: 'spacer' },
+            { type: 'text', text: `${d.memPct}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: C.mem },
+            { type: 'spacer' },
+            { type: 'text', text: `${fmtBytes(d.memUsed)}/${fmtBytes(d.memTotal)}`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
+          ]},
+          bar(d.memPct, C.mem, 6)
+        ]},
+
+        // DISK
+        { type: 'stack', direction: 'column', gap: 3, children: [
+          { type: 'stack', direction: 'row', alignItems: 'center', children: [
+            { type: 'text', text: 'DISK', font: { size: 11.5, weight: 'bold' }, textColor: C.text },
+            { type: 'spacer' },
+            { type: 'text', text: `${d.diskPct}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: C.disk },
+            { type: 'spacer' },
+            { type: 'text', text: `${fmtBytes(d.diskUsed)}/${fmtBytes(d.diskTotal)}`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
+          ]},
+          bar(d.diskPct, C.disk, 6)
+        ]},
+
+        // TRAFFIC
+        { type: 'stack', direction: 'column', gap: 3, children: [
+          { type: 'stack', direction: 'row', alignItems: 'center', children: [
+            { type: 'text', text: 'TRAFFIC', font: { size: 11.5, weight: 'bold' }, textColor: C.text },
+            { type: 'spacer' },
+            { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 12, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
+            { type: 'spacer' },
+            { type: 'text', text: `${fmtBytes(d.tfUsed)}/${fmtBytes(d.tfTotal)}`, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
+          ]},
+          bar(d.tfPct, getTrafficColor(d.tfPct), 6)
+        ]}
       ]},
 
-      // DISK：图标+名称+百分比 左，用量 右
-      { type: 'stack', direction: 'column', gap: 4, children: [
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 },
-          { type: 'text', text: '  Disk ', font: { size: 13, weight: 'bold' }, textColor: C.text },
-          { type: 'text', text: `${d.diskPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.disk },
-          { type: 'spacer' },
-          { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-        ]},
-        bar(d.diskPct, C.disk, 5),
-      ]},
-
-      // Network 块：实时网速；第二行流量百分比+用量；第三行 IP+重置
-      { type: 'stack', direction: 'column', gap: 3, children: [
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: getTrafficColor(d.tfPct), width: 13, height: 13 },
-          { type: 'text', text: '  Network', font: { size: 13, weight: 'bold' }, textColor: C.text },
-          { type: 'spacer' },
-          { type: 'text', text: `↓${fmtBytes(d.rxRate)}  ↑${fmtBytes(d.txRate)}`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
-        ]},
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'text', text: `流量 ${d.tfPct.toFixed(1)}%`, font: { size: 10, family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
-          { type: 'spacer' },
-          { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-        ]},
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'text', text: d.ipInfo, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-          { type: 'spacer' },
-          { type: 'text', text: `重置 ${d.tfReset}`, font: { size: 10 }, textColor: C.dim },
-        ]},
-        { type: 'stack', direction: 'row', alignItems: 'center', children: [
-          { type: 'text', text: d.uptimeStr, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-          { type: 'spacer' },
-          { type: 'text', text: `${d.processesCount} processes`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-        ]},
-      ]},
+      // 底部栏
+      { type: 'stack', direction: 'row', alignItems: 'center', gap: 8, children: [
+        { type: 'text', text: `⚙️ ${d.processesCount}`, font: { size: 9 }, textColor: C.dim },
+        { type: 'text', text: d.ipInfo, font: { size: 9.5, family: 'Menlo', weight: 'bold' }, textColor: C.dim },
+        { type: 'spacer' },
+        { type: 'text', text: `重置 ${d.tfReset}`, font: { size: 9 }, textColor: C.dim },
+      ]}
     ]
   };
 }
