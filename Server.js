@@ -105,9 +105,9 @@ export default async function (ctx) {
       'echo "[CMD5]"; df -B1 / 2>/dev/null | tail -1 || echo "/ 1 0 0 0%"',
       'echo "[CMD6]"; nproc 2>/dev/null || echo "1"',
       'echo "[CMD7]"; awk \'/^ *(eth|en|wlan|ens|eno|bond|veth)/{rx+=$2;tx+=$10}END{print rx,tx}\' /proc/net/dev 2>/dev/null || echo "0 0"',
-      'echo "[CMD8]"; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || cat /sys/class/hwmon/hwmon0/temp1_input 2>/dev/null || echo "0"',
+
       'echo "[CMD9]"; awk \'$3~/^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$/{r+=$6;w+=$10}END{print r*512,w*512}\' /proc/diskstats 2>/dev/null || echo "0 0"',
-      'echo "[CMD10]"; ls /proc 2>/dev/null | grep -c \'^[0-9]\' || echo "0"',
+
     ];
     
     const { stdout } = await session.exec(cmds.join(' ; '));
@@ -168,9 +168,6 @@ export default async function (ctx) {
     }
     ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
 
-    const tempRaw = parseInt(parseOutput(stdout, 8)) || 0;
-    const temp = tempRaw > 1000 ? Math.round(tempRaw / 1000) : tempRaw;
-
     const dio = (parseOutput(stdout, 9) || '0 0').split(' ');
     const drt = Number(dio[0]) || 0, dwt = Number(dio[1]) || 0;
     const prevDsk = ctx.storage.getJSON('_dsk');
@@ -183,8 +180,6 @@ export default async function (ctx) {
       }
     }
     ctx.storage.setJSON('_dsk', { r: drt, w: dwt, ts: now });
-
-    const procs = parseInt(parseOutput(stdout, 10)) || 0;
 
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '—';
     if (bwhData && bwhData.data_counter !== undefined) {
@@ -210,7 +205,6 @@ export default async function (ctx) {
       diskTotal, diskUsed, diskPct, diskRd, diskWr,
       rxRate, txRate, netRx, netTx,
       tfUsed, tfTotal, tfPct, tfReset,
-      temp, procs,
     };
   } catch (e) {
     d = { error: String(e.message || e) };
@@ -276,10 +270,6 @@ export default async function (ctx) {
       { type: 'image', src: 'sf-symbol:server.rack', color: C.cpu, width: iconSize, height: iconSize },
       { type: 'text', text: d.hostname, font: { size: 'headline', weight: 'bold' }, textColor: C.text, maxLines: 1 },
       { type: 'spacer' },
-      ...(d.temp > 0 ? [
-        { type: 'image', src: 'sf-symbol:thermometer.medium', color: pctColor(d.temp, 60, 80), width: 11, height: 11 },
-        { type: 'text', text: `${d.temp}°C`, font: { size: 11, family: 'Menlo' }, textColor: pctColor(d.temp, 60, 80) },
-      ] : []),
       { type: 'text', text: d.uptime, font: { size: 'caption2', weight: 'medium' }, textColor: C.muted, maxLines: 1, minScale: 0.7 },
     ],
   });
@@ -317,7 +307,6 @@ export default async function (ctx) {
           { type: 'image', src: 'sf-symbol:server.rack', color: C.cpu, width: 13, height: 13 },
           { type: 'text', text: d.hostname, font: { size: 'subheadline', weight: 'bold' }, textColor: C.text, maxLines: 1, minScale: 0.8 },
           { type: 'spacer' },
-          ...(d.temp > 0 ? [{ type: 'text', text: `${d.temp}°`, font: { size: 11, family: 'Menlo' }, textColor: pctColor(d.temp, 60, 80) }] : []),
         ]},
         spark(d.cpuHist, C.cpu, 20),
         metric('cpu', 'CPU', d.cpuPct, `${d.cpuPct}%`, pctColor(d.cpuPct, 60, 85)),
@@ -353,8 +342,6 @@ export default async function (ctx) {
       spark(d.memHist, C.mem, 24), bar(d.memPct, pctColor(d.memPct, 60, 85), 6), divider, { type: 'spacer' },
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 }, { type: 'text', text: 'Disk', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.diskPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.diskPct, 70, 90) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.diskPct, pctColor(d.diskPct, 70, 90), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer' },
-      
-      // 🛠️ 终极黄金排版：无重复、无截断、左右双向完美对齐的纯网速展示！
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 13, height: 13 }, { type: 'text', text: 'Traffic', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.tfPct, trafficColor(d.tfPct), 6), 
       { type: 'stack', direction: 'row', children: [{ type: 'text', text: `↓ 下载: ${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↑ 上传: ${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
