@@ -276,43 +276,42 @@ export default async function (ctx) {
 
   // Medium 布局
   return {
-    type: 'widget', backgroundColor: C.bg, padding: [14, 16], gap: 10,
+    type: 'widget', backgroundColor: C.bg, padding: [14, 16], gap: 8,
     children: [
-      // 标题行
+      // 标题行：hostname 左，时间右
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [
         { type: 'image', src: 'sf-symbol:server.rack', color: C.text, width: 14, height: 14 },
         { type: 'text', text: d.hostname, font: { size: 15, weight: 'bold' }, textColor: C.text },
         { type: 'spacer' },
-        { type: 'text', text: `Load ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-        { type: 'text', text: `·  ${d.timeStr}`, font: { size: 10 }, textColor: C.dim },
+        { type: 'text', text: d.timeStr, font: { size: 11, family: 'Menlo' }, textColor: C.dim },
       ]},
 
-      // CPU
+      // CPU：图标+名称+百分比 左，Load 右
       { type: 'stack', direction: 'column', gap: 4, children: [
-        { type: 'stack', direction: 'row', alignItems: 'baseline', gap: 5, children: [
-          { type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 12, height: 12 },
-          { type: 'text', text: `CPU ${d.cores}C`, font: { size: 13, weight: 'bold' }, textColor: C.text },
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 13, height: 13 },
+          { type: 'text', text: `  CPU ${d.cores}C `, font: { size: 13, weight: 'bold' }, textColor: C.text },
           { type: 'text', text: `${d.cpuPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.cpu },
           { type: 'spacer' },
-          { type: 'text', text: `↓${fmtBytes(d.rxRate)}  ↑${fmtBytes(d.txRate)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+          { type: 'text', text: `Load ${d.loadStr}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         ]},
-        bar(d.cpuPct, C.cpu, 5)
+        bar(d.cpuPct, C.cpu, 5),
       ]},
 
-      // MEM + SWAP 附属
+      // MEM：图标+名称+百分比 左，用量 右；下附 Swap 小行
       { type: 'stack', direction: 'column', gap: 4, children: [
-        { type: 'stack', direction: 'row', alignItems: 'baseline', gap: 5, children: [
-          { type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 12, height: 12 },
-          { type: 'text', text: 'MEM', font: { size: 13, weight: 'bold' }, textColor: C.text },
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 13, height: 13 },
+          { type: 'text', text: '  MEM ', font: { size: 13, weight: 'bold' }, textColor: C.text },
           { type: 'text', text: `${d.memPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.mem },
           { type: 'spacer' },
           { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         ]},
         bar(d.memPct, C.mem, 5),
         ...(d.swapTotal > 0 ? [
-          { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [
-            { type: 'text', text: 'Swap', font: { size: 10, weight: 'medium' }, textColor: C.swap },
-            { type: 'text', text: `${d.swapPct}%`, font: { size: 10, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
+          { type: 'stack', direction: 'row', alignItems: 'center', children: [
+            { type: 'text', text: 'Swap ', font: { size: 11, weight: 'medium' }, textColor: C.swap },
+            { type: 'text', text: `${d.swapPct}%`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: C.swap },
             { type: 'spacer' },
             { type: 'text', text: `${fmtBytes(d.swapUsed)} / ${fmtBytes(d.swapTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
           ]},
@@ -320,38 +319,32 @@ export default async function (ctx) {
         ] : []),
       ]},
 
-      // DISK + TRAFFIC 两列
-      { type: 'stack', direction: 'row', gap: 12, children: [
-        { type: 'stack', flex: 1, direction: 'column', gap: 4, children: [
-          { type: 'stack', direction: 'row', alignItems: 'baseline', gap: 5, children: [
-            { type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 12, height: 12 },
-            { type: 'text', text: 'DISK', font: { size: 13, weight: 'bold' }, textColor: C.text },
-            { type: 'text', text: `${d.diskPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.disk },
-            { type: 'spacer' },
-            { type: 'text', text: `${fmtBytes(d.diskUsed)}/${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
-          ]},
-          bar(d.diskPct, C.disk, 5),
-        ]},
-      ]},
-
-      // TRAFFIC
+      // DISK：图标+名称+百分比 左，用量 右
       { type: 'stack', direction: 'column', gap: 4, children: [
-        { type: 'stack', direction: 'row', alignItems: 'baseline', gap: 5, children: [
-          { type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: getTrafficColor(d.tfPct), width: 12, height: 12 },
-          { type: 'text', text: 'TRAF', font: { size: 13, weight: 'bold' }, textColor: C.text },
-          { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 },
+          { type: 'text', text: '  Disk ', font: { size: 13, weight: 'bold' }, textColor: C.text },
+          { type: 'text', text: `${d.diskPct}%`, font: { size: 13, weight: 'heavy', family: 'Menlo' }, textColor: C.disk },
           { type: 'spacer' },
-          { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+          { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         ]},
-        bar(d.tfPct, getTrafficColor(d.tfPct), 5),
+        bar(d.diskPct, C.disk, 5),
       ]},
 
-      // 底部状态栏
-      { type: 'stack', direction: 'row', alignItems: 'center', children: [
-        { type: 'text', text: d.ipInfo, font: { size: 9.5, family: 'Menlo' }, textColor: C.dim },
-        { type: 'spacer' },
-        { type: 'text', text: `重置 ${d.tfReset}`, font: { size: 9.5 }, textColor: C.dim },
-      ]}
+      // Network 块：图标+Network 左，网速 右；第二行 总流量用量
+      { type: 'stack', direction: 'column', gap: 3, children: [
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: getTrafficColor(d.tfPct), width: 13, height: 13 },
+          { type: 'text', text: '  Network', font: { size: 13, weight: 'bold' }, textColor: C.text },
+          { type: 'spacer' },
+          { type: 'text', text: `↓${fmtBytes(d.rxRate)}  ↑${fmtBytes(d.txRate)}`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
+        ]},
+        { type: 'stack', direction: 'row', alignItems: 'center', children: [
+          { type: 'text', text: d.ipInfo, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+          { type: 'spacer' },
+          { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}  重置 ${d.tfReset}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
+        ]},
+      ]},
     ]
   };
 }
