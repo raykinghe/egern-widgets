@@ -170,7 +170,16 @@ export default async function (ctx) {
     ctx.storage.setJSON(`${storageVer}net_${safeHost}`, { rx: netRx, tx: netTx, ts: now });
 
     const processesCount = parseInt(p[8]) || 0;
-    const uptimeStr = (p[9] || 'up 1 hour').replace('up ', '运行 ');
+    
+    // 优化 uptime 显示
+    const uptimeRaw = (p[9] || 'up 1 hour').replace('up ', '');
+    let uptimeStr = uptimeRaw;
+    if (uptimeRaw.includes('days') || uptimeRaw.includes('day')) {
+      uptimeStr = uptimeRaw.replace(/(\d+) days?/, '$1天').replace('hours', '小时').replace('hour', '小时').replace('minutes', '分钟').replace('minute', '分钟');
+    } else if (uptimeRaw.includes('hours') || uptimeRaw.includes('hour')) {
+      uptimeStr = uptimeRaw.replace('hours', '小时').replace('hour', '小时');
+    }
+    uptimeStr = '运行 ' + uptimeStr.trim();
 
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '';
     const trafficKey = `${storageVer}traffic_${safeHost}_${resetDay}`;
@@ -253,7 +262,7 @@ export default async function (ctx) {
         { type: 'text', text: d.hostname, font: { size: 13, weight: 'bold' }, textColor: C.text },
         { type: 'text', text: `刷新于 ${d.timeStr}`, font: { size: 9, weight: 'medium' }, textColor: C.dim }, 
         { type: 'spacer' },
-        { type: 'text', text: `${d.uptimeStr} | Load: ${d.loadStr}`, font: { size: 9, family: 'Menlo' }, textColor: C.dim },
+        { type: 'text', text: d.uptimeStr, font: { size: 9, family: 'Menlo' }, textColor: C.dim },
       ]},
       { type: 'stack', direction: 'column', gap: 7, children: [
         { type: 'stack', direction: 'column', gap: 3, children: [
@@ -290,7 +299,7 @@ export default async function (ctx) {
             { type: 'spacer' },
             { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 11, weight: 'heavy', family: 'Menlo' }, textColor: getTrafficColor(d.tfPct) },
             { type: 'spacer' },
-            { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s ↑${fmtBytes(d.txRate)}/s (${fmtBytes(d.tfUsed)}/${fmtBytes(d.tfTotal)})`, font: { size: 9, family: 'Menlo' }, textColor: C.dim },
+            { type: 'text', text: `(${fmtBytes(d.tfUsed)}/${fmtBytes(d.tfTotal)})`, font: { size: 9, family: 'Menlo' }, textColor: C.dim },
           ]},
           bar(d.tfPct, getTrafficColor(d.tfPct), 5)
         ]}
