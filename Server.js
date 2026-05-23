@@ -1,29 +1,14 @@
-// Server Monitor Widget — Merged Edition
+// Server Monitor Widget — Merged & Enhanced Edition
 // 视觉风格来自 ServerEgern.js（渐变背景/动态配色/sparkline/温度）
 // 流量统计来自 Server.js（搬瓦工 API / 自定义上限）
-// 已移除 Swap 分区显示
-//
-// 环境变量说明：
-// ── SSH 连接 ──────────────────────────────────
-// host          : 服务器 IP 或域名（必填）
-// username      : SSH 用户名（默认 root）
-// password      : SSH 密码（与 privateKey 二选一）
-// privateKey    : SSH 私钥（支持 OpenSSH/PEM，自动修复换行）
-// port          : SSH 端口（默认 22）
-// ── 流量统计（二选一）─────────────────────────
-// 方案 A 搬瓦工 API（推荐，数据准确）：
-// BWH_VEID      : 搬瓦工 VEID
-// BWH_API_KEY   : 搬瓦工 API KEY
-// 方案 B 自定义（显示开机累计流量，非月流量）：
-// TRAFFIC_LIMIT : 月流量上限 GB（默认 2000）
-// RESET_DAY     : 每月重置日（默认 1）
-// ── 其他 ──────────────────────────────────────
-// MASK_IP       : IP 打码开关（true/false，默认 false）
+// 
+// 🛠️ 优化版：修复了命令因 && 连坐断流的隐患，采用严格的标签序列号匹配，彻底杜绝索引错位！
 
 export default async function (ctx) {
 
   // ─── Helpers ────────────────────────────────
   const fmtBytes = b => {
+    if (!b || isNaN(b)) return '0B';
     if (b >= 1024 ** 4) return (b / 1024 ** 4).toFixed(1) + 'T';
     if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + 'G';
     if (b >= 1024 ** 2) return (b / 1024 ** 2).toFixed(1) + 'M';
@@ -34,7 +19,6 @@ export default async function (ctx) {
   const getNextResetDate = (resetDay) => {
     const now = new Date();
     const targetMonth = now.getMonth() + (now.getDate() >= resetDay ? 1 : 0);
-    // day=0 trick: new Date(y, m+1, 0) 得到 m 月最后一天，处理 resetDay=31 但当月只有28/30天
     const lastDay = new Date(now.getFullYear(), targetMonth + 1, 0).getDate();
     const clampedDay = Math.min(resetDay, lastDay);
     const next = new Date(now.getFullYear(), targetMonth, clampedDay);
@@ -84,32 +68,40 @@ export default async function (ctx) {
       timeout: 8000,
     });
 
-    const SEP = '<<SEP>>';
+    // 💡 核心改良：使用显式序号标志（如 [CMD0]），并将拼接符由 && 改为分号 ;
+    // 如此一来，即便某一条命令在特定系统上因权限等原因报错，后面的命令依旧能顺利执行并完美对齐！
     const cmds = [
-      'hostname -s 2>/dev/null || hostname',                                                        // 0
-      'cat /proc/loadavg',                                                                          // 1
-      'uptime -p 2>/dev/null || uptime',                                                            // 2
-      'head -1 /proc/stat',                                                                         // 3
-      "awk '/MemTotal/{t=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}END{print t*1024,(t-f-b-c)*1024}' /proc/meminfo", // 4
-      'df -B1 / | tail -1',                                                                         // 5
-      'nproc',                                                                                      // 6
-      "awk '/^ *(eth|en|wlan|ens|eno|bond|veth)/{rx+=$2;tx+=$10}END{print rx,tx}' /proc/net/dev",  // 7
-      'cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || cat /sys/class/hwmon/hwmon0/temp1_input 2>/dev/null || echo 0', // 8
-      "awk '$3~/^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$/{r+=$6;w+=$10}END{print r*512,w*512}' /proc/diskstats 2>/dev/null || echo '0 0'", // 9
-      "ls /proc 2>/dev/null | grep -c '^[0-9]' || echo 0",                                         // 10
+      'echo "[CMD0]"; hostname -s 2>/dev/null || hostname',
+      'echo "[CMD1]"; cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
+      'echo "[CMD2]"; uptime -p 2>/dev/null || uptime',
+      'echo "[CMD3]"; head -1 /proc/stat 2>/dev/null || echo "cpu 0 0 0 0"',
+      'echo "[CMD4]"; awk \'/MemTotal/{t=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}END{print t*1024,(t-f-b-c)*1024}\' /proc/meminfo 2>/dev/null || echo "1 0"',
+      'echo "[CMD5]"; df -B1 / 2>/dev/null | tail -1 || echo "/ 1 0 0 0%"',
+      'echo "[CMD6]"; nproc 2>/dev/null || echo "1"',
+      'echo "[CMD7]"; awk \'/^ *(eth|en|wlan|ens|eno|bond|veth)/{rx+=$2;tx+=$10}END{print rx,tx}\' /proc/net/dev 2>/dev/null || echo "0 0"',
+      'echo "[CMD8]"; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || cat /sys/class/hwmon/hwmon0/temp1_input 2>/dev/null || echo "0"',
+      'echo "[CMD9]"; awk \'$3~/^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$/{r+=$6;w+=$10}END{print r*512,w*512}\' /proc/diskstats 2>/dev/null || echo "0 0"',
+      'echo "[CMD10]"; ls /proc 2>/dev/null | grep -c \'^[0-9]\' || echo "0"',
     ];
-    const { stdout } = await session.exec(cmds.join(` && echo '${SEP}' && `));
+    
+    const { stdout } = await session.exec(cmds.join(' ; '));
     await session.close();
 
-    const p = stdout.split(SEP).map(s => s.trim());
-    const hostname = p[0] || 'server';
-    const la = (p[1] || '0 0 0').split(' ');
-    const load = [la[0], la[1], la[2]];
-    const uptime = (p[2] || '').replace(/^up\s+/, '').replace(/,\s*$/, '');
+    // 解析器：根据 [CMDx] 标签精确抓取对应的输出内容，防御任何错位风险
+    const parseOutput = (outputStr, index) => {
+      const regex = new RegExp(`\\[CMD${index}\\]\\n?([^]*?)(?=\\n?\\[CMD|$)`);
+      const match = outputStr.match(regex);
+      return match ? match[1].trim() : '';
+    };
 
-    // CPU
-    const cpuNums = (p[3] || '').replace(/^cpu\s+/, '').split(/\s+/).map(Number);
-    const cpuTotal = cpuNums.reduce((a, b) => a + b, 0);
+    const hostname = parseOutput(stdout, 0) || 'server';
+    const la = (parseOutput(stdout, 1) || '0 0 0').split(' ');
+    const load = [la[0] || '0', la[1] || '0', la[2] || '0'];
+    const uptime = parseOutput(stdout, 2).replace(/^up\s+/, '').replace(/,\s*$/, '') || 'unknown';
+
+    // CPU 计算
+    const cpuNums = (parseOutput(stdout, 3)).replace(/^cpu\s+/, '').split(/\s+/).map(Number);
+    const cpuTotal = cpuNums.reduce((a, b) => a + b, 0) || 0;
     const cpuIdle = cpuNums[3] || 0;
     const prevCpu = ctx.storage.getJSON('_cpu');
     let cpuPct = 0;
@@ -117,29 +109,29 @@ export default async function (ctx) {
       cpuPct = Math.round(((cpuTotal - prevCpu.t - (cpuIdle - prevCpu.i)) / (cpuTotal - prevCpu.t)) * 100);
     }
     ctx.storage.setJSON('_cpu', { t: cpuTotal, i: cpuIdle });
-    cpuPct = Math.max(0, Math.min(100, cpuPct));
+    cpuPct = Math.max(0, Math.min(100, isNaN(cpuPct) ? 0 : cpuPct));
     const cpuHist = ctx.storage.getJSON('_cpuH') || [];
     cpuHist.push(cpuPct);
     while (cpuHist.length > 20) cpuHist.shift();
     ctx.storage.setJSON('_cpuH', cpuHist);
 
-    // Memory — 来自 /proc/meminfo，排除 buff/cache，结果更贴近系统实际使用
-    const memNums = (p[4] || '1 0').split(/\s+/).map(Number);
+    // Memory
+    const memNums = (parseOutput(stdout, 4) || '1 0').split(/\s+/).map(Number);
     const memTotal = memNums[0] || 1, memUsed = memNums[1] || 0;
-    const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100));
+    const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100)) || 0;
     const memHist = ctx.storage.getJSON('_memH') || [];
     memHist.push(memPct);
     while (memHist.length > 20) memHist.shift();
     ctx.storage.setJSON('_memH', memHist);
 
     // Disk
-    const df = (p[5] || '').split(/\s+/);
+    const df = (parseOutput(stdout, 5) || '').split(/\s+/);
     const diskTotal = Number(df[1]) || 1, diskUsed = Number(df[2]) || 0;
     const diskPct = parseInt(df[4]) || 0;
-    const cores = parseInt(p[6]) || 1;
+    const cores = parseInt(parseOutput(stdout, 6)) || 1;
 
-    // Network（索引已去掉 uname -r，从 7 开始）
-    const nn = (p[7] || '0 0').split(' ');
+    // Network
+    const nn = (parseOutput(stdout, 7) || '0 0').split(' ');
     const netRx = Number(nn[0]) || 0, netTx = Number(nn[1]) || 0;
     const prevNet = ctx.storage.getJSON('_net');
     const now = Date.now();
@@ -154,11 +146,11 @@ export default async function (ctx) {
     ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
 
     // Temperature
-    const tempRaw = parseInt(p[8]) || 0;
+    const tempRaw = parseInt(parseOutput(stdout, 8)) || 0;
     const temp = tempRaw > 1000 ? Math.round(tempRaw / 1000) : tempRaw;
 
     // Disk I/O
-    const dio = (p[9] || '0 0').split(' ');
+    const dio = (parseOutput(stdout, 9) || '0 0').split(' ');
     const drt = Number(dio[0]) || 0, dwt = Number(dio[1]) || 0;
     const prevDsk = ctx.storage.getJSON('_dsk');
     let diskRd = 0, diskWr = 0;
@@ -171,16 +163,14 @@ export default async function (ctx) {
     }
     ctx.storage.setJSON('_dsk', { r: drt, w: dwt, ts: now });
 
-    const procs = parseInt(p[10]) || 0;
+    const procs = parseInt(parseOutput(stdout, 10)) || 0;
 
     // ── 流量统计 ──────────────────────────────
-    // FIX #7: tfTotal 加 || 1 防止除以 0
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '—';
     if (bwhData && bwhData.data_counter !== undefined) {
       tfUsed  = bwhData.data_counter;
       tfTotal = bwhData.plan_monthly_data || 1;
       tfPct   = Math.min((tfUsed / tfTotal) * 100, 100);
-      // data_next_reset=0 表示 API 未返回有效时间，显示占位符
       if (bwhData.data_next_reset) {
         const rd = new Date(bwhData.data_next_reset * 1000);
         tfReset = `${rd.getMonth() + 1}月${rd.getDate()}日`;
@@ -188,7 +178,6 @@ export default async function (ctx) {
         tfReset = '—';
       }
     } else {
-      // 注意：无搬瓦工 API 时显示的是开机累计流量，非精确月流量
       tfUsed  = netRx + netTx;
       tfTotal = trafficLimitGB * (1024 ** 3);
       tfPct   = Math.min((tfUsed / tfTotal) * 100, 100);
@@ -218,7 +207,6 @@ export default async function (ctx) {
     cpu:   { light: '#1a7f37', dark: '#3fb950' },
     mem:   { light: '#0969da', dark: '#58a6ff' },
     net:   { light: '#bf3989', dark: '#f778ba' },
-    // FIX #6: 补回上行流量专用色（原 swap 紫色），避免与 mem 蓝色混淆
     netTx: { light: '#8250df', dark: '#a371f7' },
     disk:  { light: '#9a6700', dark: '#d29922' },
     temp:  { light: '#cf222e', dark: '#ff7b72' },
@@ -300,8 +288,6 @@ export default async function (ctx) {
     ],
   });
 
-  // FIX #1: footer 移到 error 检查之后，且对 d.tfReset 做兜底
-  // （footer 是函数，只在需要渲染时才求值，避免 d.error 时访问 undefined）
   const makeFooter = () => ({
     type: 'stack', direction: 'row', alignItems: 'center', children: [
       { type: 'date', date: new Date().toISOString(), format: 'relative', font: { size: 'caption2' }, textColor: C.dim },
@@ -418,7 +404,7 @@ export default async function (ctx) {
             ]},
             bar(d.tfPct, trafficColor(d.tfPct), 4),
           ]},
-          // NET — FIX #6: 上行改用 C.netTx（紫色），语义更清晰
+          // NET
           { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [
             { type: 'image', src: 'sf-symbol:network', color: C.net, width: 11, height: 11 },
             { type: 'text', text: 'NET', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text },
@@ -498,7 +484,6 @@ export default async function (ctx) {
       { type: 'stack', direction: 'row', children: [
         { type: 'text', text: `重置: ${d.tfReset}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim },
         { type: 'spacer' },
-        // FIX #6: 上行同样改用 C.netTx
         { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.net },
         { type: 'text', text: `  ↑${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.netTx },
       ]},
