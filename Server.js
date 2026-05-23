@@ -1,4 +1,4 @@
-// Server Monitor Widget — Perfect Localized Edition
+// Server Monitor Widget — Perfect Localized & Optimized Edition
 export default async function (ctx) {
 
   // ─── Helpers ────────────────────────────────
@@ -20,7 +20,7 @@ export default async function (ctx) {
     return `${next.getMonth() + 1}月${next.getDate()}日`;
   };
 
-  // 🛠️ 终极完美核心：解析 Linux 复杂的 uptime，把 weeks / days 自动合并计算为纯天数
+  // 核心功能：解析 Linux 复杂的 uptime，把 weeks / days 自动合并计算为纯天数
   const formatUptime = (rawStr) => {
     let clean = rawStr.replace(/^up\s+/, '').replace(/,\s*$/, '').trim();
     if (!clean || clean === 'unknown') return '—';
@@ -29,40 +29,27 @@ export default async function (ctx) {
     let hours = 0;
     let minutes = 0;
 
-    // 1. 匹配并提取 weeks 数量
     const weekMatch = clean.match(/(\d+)\s+weeks?/);
-    if (weekMatch) {
-      totalDays += parseInt(weekMatch[1]) * 7;
-    }
+    if (weekMatch) totalDays += parseInt(weekMatch[1]) * 7;
 
-    // 2. 匹配并提取 days 数量
     const dayMatch = clean.match(/(\d+)\s+days?/);
-    if (dayMatch) {
-      totalDays += parseInt(dayMatch[1]);
-    }
+    if (dayMatch) totalDays += parseInt(dayMatch[1]);
 
-    // 3. 匹配并提取 hours 数量
     const hourMatch = clean.match(/(\d+)\s+hours?/);
-    if (hourMatch) {
-      hours = parseInt(hourMatch[1]);
-    }
+    if (hourMatch) hours = parseInt(hourMatch[1]);
 
-    // 4. 匹配并提取 minutes 数量
     const minMatch = clean.match(/(\d+)\s+minutes?/);
-    if (minMatch) {
-      minutes = parseInt(minMatch[1]);
-    }
+    if (minMatch) minutes = parseInt(minMatch[1]);
 
-    // 5. 组合成直观的中文样式
     let result = '';
     if (totalDays > 0) result += `${totalDays}天`;
     if (hours > 0)     result += `${hours}小时`;
-    if (minutes > 0 && totalDays === 0) result += `${minutes}分钟`; // 天数很大时隐藏分钟，防止排版拥挤
+    if (minutes > 0 && totalDays === 0) result += `${minutes}分钟`;
     
     return result || '刚刚开机';
   };
 
-  // 🛠️ 优化功能：生成本地精确定格的 "刷新于 17:49:44" 时间文本
+  // 优化功能：生成本地精确定格的 "刷新于 17:49:44" 时间文本
   const getRefreshTimeString = () => {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
@@ -136,7 +123,6 @@ export default async function (ctx) {
     const la = (parseOutput(stdout, 1) || '0 0 0').split(' ');
     const load = [la[0] || '0', la[1] || '0', la[2] || '0'];
     
-    // 应用全新升级的时间转换
     const uptime = formatUptime(parseOutput(stdout, 2));
 
     const cpuStr = parseOutput(stdout, 3) || 'cpu 0 0 0 0';
@@ -367,8 +353,13 @@ export default async function (ctx) {
       spark(d.memHist, C.mem, 24), bar(d.memPct, pctColor(d.memPct, 60, 85), 6), divider, { type: 'spacer' },
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 }, { type: 'text', text: 'Disk', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.diskPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.diskPct, 70, 90) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.diskPct, pctColor(d.diskPct, 70, 90), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer' },
+      
+      // 🛠️ 已经完美修改优化的大组件 Traffic 流量区块
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 13, height: 13 }, { type: 'text', text: 'Traffic', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      bar(d.tfPct, trafficColor(d.tfPct), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `重置: ${d.tfReset}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.net }, { type: 'text', text: `  ↑${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.netTx }] }, divider,
+      bar(d.tfPct, trafficColor(d.tfPct), 6), 
+      { type: 'stack', direction: 'row', children: [{ type: 'text', text: `已用: ${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s  ↑${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
+      divider,
+      
       makeFooter(),
     ],
   };
