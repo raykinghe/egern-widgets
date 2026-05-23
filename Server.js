@@ -20,7 +20,7 @@ export default async function (ctx) {
     return `${next.getMonth() + 1}月${next.getDate()}日`;
   };
 
-  // 核心功能：解析 Linux 复杂的 uptime，把 weeks / days 自动合并计算为纯天数
+  // 解析 Linux 复杂的 uptime，把 weeks / days 自动合并计算为纯天数
   const formatUptime = (rawStr) => {
     let clean = rawStr.replace(/^up\s+/, '').replace(/,\s*$/, '').trim();
     if (!clean || clean === 'unknown') return '—';
@@ -49,7 +49,7 @@ export default async function (ctx) {
     return result || '刚刚开机';
   };
 
-  // 优化功能：生成本地精确定格的 "刷新于 17:49:44" 时间文本
+  // 生成本地精确定格的 "刷新于 17:49:44" 时间文本
   const getRefreshTimeString = () => {
     const now = new Date();
     const pad = n => String(n).padStart(2, '0');
@@ -354,10 +354,10 @@ export default async function (ctx) {
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 }, { type: 'text', text: 'Disk', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.diskPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.diskPct, 70, 90) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.diskPct, pctColor(d.diskPct, 70, 90), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer' },
       
-      // 🛠️ 已经完美修改优化的大组件 Traffic 流量区块
+      // 🛠️ 已修正优化的 Traffic 区块：拒绝数据套娃，只留清爽的网速显示！
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 13, height: 13 }, { type: 'text', text: 'Traffic', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.tfPct, trafficColor(d.tfPct), 6), 
-      { type: 'stack', direction: 'row', children: [{ type: 'text', text: `已用: ${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s  ↑${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
+      { type: 'stack', direction: 'row', children: [{ type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s   ↑${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
       divider,
       
       makeFooter(),
