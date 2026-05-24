@@ -93,7 +93,7 @@ export default async function (ctx) {
     const session = await ctx.ssh.connect({
       host, port: Number(port || 22), username,
       ...(finalKey ? { privateKey: finalKey } : { password }),
-      timeout: 8000,
+      timeout: 15000,
     });
 
     const cmds = [
@@ -162,8 +162,11 @@ export default async function (ctx) {
     if (prevNet && prevNet.ts) {
       const el = (now - prevNet.ts) / 1000;
       if (el > 0 && el < 3600) {
-        rxRate = Math.max(0, (netRx - prevNet.rx) / el);
-        txRate = Math.max(0, (netTx - prevNet.tx) / el);
+        const rx = Math.max(0, (netRx - prevNet.rx) / el);
+        const tx = Math.max(0, (netTx - prevNet.tx) / el);
+        const cap = 1024 ** 3; // 1GB/s 上限，超过视为异常
+        rxRate = rx < cap ? rx : 0;
+        txRate = tx < cap ? tx : 0;
       }
     }
     ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
