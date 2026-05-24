@@ -23,16 +23,16 @@ env_schema:
     description: "SSH 私钥（与密码二选一，支持 OpenSSH/PEM 格式，自动修复换行）"
     default_value: ""
   BWH_VEID:
-    name: 搬瓦工 VEID
-    description: "搬瓦工流量 API —— VEID（可选，不填则使用自定义流量上限）"
+    name: 服务器 VEID
+    description: "服务器流量 API —— VEID（可选，不填则使用自定义流量上限）"
     default_value: ""
   BWH_API_KEY:
-    name: 搬瓦工 API KEY
-    description: "搬瓦工流量 API —— API KEY（可选）"
+    name: 服务器 API KEY
+    description: "服务器流量 API —— API KEY（可选）"
     default_value: ""
   TRAFFIC_LIMIT:
     name: 月流量上限 (GB)
-    description: "未配置搬瓦工 API 时使用，默认 2000 GB"
+    description: "未配置服务器 API 时使用，默认 2000 GB"
     default_value: "2000"
   RESET_DAY:
     name: 流量重置日
