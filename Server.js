@@ -3,6 +3,7 @@ export default async function (ctx) {
 
   // ─── Helpers ────────────────────────────────
   const fmtBytes = b => {
+    if (b === null) return '—';
     if (!b || isNaN(b)) return '0B';
     if (b >= 1024 ** 4) return (b / 1024 ** 4).toFixed(1) + 'T';
     if (b >= 1024 ** 3) return (b / 1024 ** 3).toFixed(1) + 'G';
@@ -165,8 +166,8 @@ export default async function (ctx) {
         const rx = Math.max(0, (netRx - prevNet.rx) / el);
         const tx = Math.max(0, (netTx - prevNet.tx) / el);
         const cap = 1024 ** 3; // 1GB/s 上限，超过视为异常
-        rxRate = rx < cap ? rx : 0;
-        txRate = tx < cap ? tx : 0;
+        rxRate = rx < cap ? rx : null;
+        txRate = tx < cap ? tx : null;
       }
     }
     ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
