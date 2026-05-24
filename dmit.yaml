@@ -20,7 +20,7 @@ env_schema:
     default_value: ""
   privateKey:
     name: 私钥
-    description: "SSH 私钥（与密码二选一，支持 OpenSSH/PEM 格式，自动修复换行）"
+    description: "SSH 私钥（与密码二选一，支持 OpenSSH/PEM 格式）"
     default_value: ""
   BWH_VEID:
     name: 服务器 VEID
