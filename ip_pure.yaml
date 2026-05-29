@@ -1,8 +1,9 @@
 widgets:
   - generic:
-      name: IP Pure
+      name: IP 纯净度
       script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/master/IP_Clean.js
       env:
-        policy: 🇺🇸BWG
+        policy1: 🇺🇸BWG
+        policy2: 🇺🇸DMIT
       update_interval: 86400
-      timeout: 5
+      timeout: 10
