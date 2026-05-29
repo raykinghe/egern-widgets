@@ -8,6 +8,8 @@
 export default async function(ctx) {
  const POLICY1 = ctx.env.policy1 || 'DIRECT';
  const POLICY2 = ctx.env.policy2 || 'DIRECT';
+ const NAME1 = ctx.env.name1 || POLICY1;
+ const NAME2 = ctx.env.name2 || POLICY2;
 
  const BG_COLOR   = { light: '#FFFFFF', dark: '#2C2C2E' };
  const C_TITLE    = { light: '#1A1A1A', dark: '#FFD700' };
@@ -79,18 +81,17 @@ export default async function(ctx) {
    gap: 4,
    children: [
      { type: 'image', src: `sf-symbol:${iconName}`, color: iconColor, width: SMALL_ICON, height: SMALL_ICON },
-     { type: 'spacer' },
      { type: 'text', text: value, font: { size: SMALL_FONT, weight: 'bold', family: 'Menlo' }, textColor: valueColor, maxLines: 1, minScale: 0.6 }
    ]
  });
 
- const Column = (title, info) => ({
+ const Column = (name, info) => ({
    type: 'stack',
    direction: 'column',
    gap: 6,
    flex: 1,
    children: [
-     { type: 'text', text: title, font: { size: 11, weight: 'heavy' }, textColor: C_TITLE },
+     { type: 'text', text: name, font: { size: 11, weight: 'heavy' }, textColor: C_TITLE },
      Row("globe", C_ICON_IP, info.ip, C_GREEN),
      Row("number.square", C_ICON_IP, info.asn, C_GREEN),
      Row("mappin.and.ellipse", C_ICON_LOC, info.loc, C_MAIN),
@@ -126,8 +127,8 @@ export default async function(ctx) {
        direction: 'row',
        gap: 12,
        children: [
-         Column(POLICY1, i1),
-         Column(POLICY2, i2)
+         Column(NAME1, i1),
+         Column(NAME2, i2)
        ]
      }
    ]
