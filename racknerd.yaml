@@ -36,8 +36,8 @@ env_schema:
     default_value: "2000"
   RESET_DAY:
     name: 流量重置日
-    description: "每月流量重置日期，默认 22 号"
-    default_value: "22"
+    description: "每月流量重置日期，默认 1 号"
+    default_value: "1"
 
 scriptings:
 - generic:
