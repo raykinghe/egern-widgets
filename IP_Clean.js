@@ -21,26 +21,35 @@ export default async function(ctx) {
      timeout: 4000,
      policy: POLICY
    });
-   d = JSON.parse(await res.text());
+   const text = await res.text();
+   d = JSON.parse(text);
+   if (typeof d !== 'object' || d === null) d = {};
  } catch (e) {}
 
- const ip = d.ip || "获取失败";
- const ipLabel = ip.includes(':') ? "IPv6" : "IPv4";
+ const ipRaw = d.ip || "";
+ const ip = ipRaw || "获取失败";
+ const ipLabel = ipRaw.includes(':') ? "IPv6" : "IPv4";
+ const ipColor = ipRaw ? C_GREEN : C_SUB;
+
  const asn = d.asn ? `AS${d.asn} ${d.asOrganization || ""}`.trim() : "未知";
+ const asnColor = d.asn ? C_GREEN : C_SUB;
 
  let code = d.countryCode || "";
  if (code.toUpperCase() === 'TW') code = 'CN';
  const flag = code
    ? String.fromCodePoint(...code.toUpperCase().split('').map(c => 127397 + c.charCodeAt()))
-   : "🌐";
- const loc = (d.country !== d.city)
-   ? `${flag} ${d.country || ""} ${d.city || ""}`.trim() || "未知位置"
-   : `${flag} ${d.city || ""}`.trim() || "未知位置";
+   : "";
+ const loc = (d.country || d.city)
+   ? ((d.country !== d.city)
+     ? `${flag} ${d.country || ""} ${d.city || ""}`.trim()
+     : `${flag} ${d.city || ""}`.trim())
+   : "未知位置";
+ const locColor = (d.country || d.city) ? C_MAIN : C_SUB;
 
  const ipTypeText = d.isBroadcast === true ? "📡 广播IP" : (d.isBroadcast === false ? "🏠 原生IP" : "未知");
 
  const risk = d.fraudScore;
- let riskTxt = "获取失败", riskCol = C_SUB, riskIc = "questionmark.shield.fill";
+ let riskTxt = "获取失败", riskCol = C_SUB, riskIc = "shield.slash";
  if (risk !== undefined) {
    if (risk >= 80) {
      riskTxt = `极高风险 (${risk})`;
@@ -96,9 +105,9 @@ export default async function(ctx) {
        direction: 'column',
        gap: 10,
        children: [
-         Row("globe", C_ICON_IP, ipLabel, ip, C_GREEN),
-         Row("number.square", C_ICON_IP, "归属网络", asn, C_GREEN),
-         Row("mappin.and.ellipse", C_ICON_LOC, "位置", loc, C_MAIN),
+         Row("globe", C_ICON_IP, ipLabel, ip, ipColor),
+         Row("number.square", C_ICON_IP, "归属网络", asn, asnColor),
+         Row("mappin.and.ellipse", C_ICON_LOC, "位置", loc, locColor),
          Row("antenna.radiowaves.left.and.right", C_ICON_LOC, "IP属性", ipTypeText, C_SUB),
          Row(riskIc, riskCol, "风险评级", riskTxt, riskCol)
        ]
