@@ -14,10 +14,12 @@ export default async function (ctx) {
 
   const getNextResetDate = (resetDay) => {
     const now = new Date();
-    const targetMonth = now.getMonth() + (now.getDate() >= resetDay ? 1 : 0);
-    const lastDay = new Date(now.getFullYear(), targetMonth + 1, 0).getDate();
+    let year = now.getFullYear();
+    let month = now.getMonth() + (now.getDate() >= resetDay ? 1 : 0);
+    if (month > 11) { month = 0; year += 1; }
+    const lastDay = new Date(year, month + 1, 0).getDate();
     const clampedDay = Math.min(resetDay, lastDay);
-    const next = new Date(now.getFullYear(), targetMonth, clampedDay);
+    const next = new Date(year, month, clampedDay);
     return `${next.getMonth() + 1}月${next.getDate()}日`;
   };
 
@@ -102,13 +104,11 @@ export default async function (ctx) {
       'echo "[CMD1]"; cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
       'echo "[CMD2]"; uptime -p 2>/dev/null || uptime',
       'echo "[CMD3]"; head -1 /proc/stat 2>/dev/null || echo "cpu 0 0 0 0"',
-      'echo "[CMD4]"; awk \'/MemTotal/{t=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}END{print t*1024,(t-f-b-c)*1024}\' /proc/meminfo 2>/dev/null || echo "1 0"',
+      'echo "[CMD4]"; awk \'/MemTotal/{t=$2}/MemFree/{f=$2}/Buffers/{b=$2}/^Cached/{c=$2}/SReclaimable/{r=$2}END{print t*1024,(t-f-b-c-r)*1024}\' /proc/meminfo 2>/dev/null || echo "1 0"',
       'echo "[CMD5]"; df -B1 / 2>/dev/null | tail -1 || echo "/ 1 0 0 0%"',
       'echo "[CMD6]"; nproc 2>/dev/null || echo "1"',
       'echo "[CMD7]"; awk \'/^ *(eth|en|wlan|ens|eno|bond|veth)/{rx+=$2;tx+=$10}END{print rx,tx}\' /proc/net/dev 2>/dev/null || echo "0 0"',
-
-      'echo "[CMD9]"; awk \'$3~/^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$/{r+=$6;w+=$10}END{print r*512,w*512}\' /proc/diskstats 2>/dev/null || echo "0 0"',
-
+      'echo "[CMD8]"; awk \'$3~/^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$/{r+=$6;w+=$10}END{print r*512,w*512}\' /proc/diskstats 2>/dev/null || echo "0 0"',
     ];
     
     const { stdout } = await session.exec(cmds.join(' ; '));
@@ -172,21 +172,25 @@ export default async function (ctx) {
     }
     ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
 
-    const dio = (parseOutput(stdout, 9) || '0 0').split(' ');
+    const dio = (parseOutput(stdout, 8) || '0 0').split(' ');
     const drt = Number(dio[0]) || 0, dwt = Number(dio[1]) || 0;
     const prevDsk = ctx.storage.getJSON('_dsk');
     let diskRd = 0, diskWr = 0;
     if (prevDsk && prevDsk.ts) {
       const el = (now - prevDsk.ts) / 1000;
       if (el > 0 && el < 3600) {
-        diskRd = Math.max(0, (drt - prevDsk.r) / el);
-        diskWr = Math.max(0, (dwt - prevDsk.w) / el);
+        const rd = Math.max(0, (drt - prevDsk.r) / el);
+        const wr = Math.max(0, (dwt - prevDsk.w) / el);
+        const cap = 1024 ** 3; // 1GB/s 上限，超过视为异常
+        diskRd = rd < cap ? rd : null;
+        diskWr = wr < cap ? wr : null;
       }
     }
     ctx.storage.setJSON('_dsk', { r: drt, w: dwt, ts: now });
 
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '—';
     if (bwhData && bwhData.data_counter !== undefined) {
+      // ── BWG API 分支：数据由搬瓦工服务端管理，月重置由官方保证 ──
       tfUsed  = bwhData.data_counter;
       tfTotal = bwhData.plan_monthly_data || 1;
       tfPct   = Math.min((tfUsed / tfTotal) * 100, 100);
@@ -197,9 +201,52 @@ export default async function (ctx) {
         tfReset = '—';
       }
     } else {
-      tfUsed  = netRx + netTx;
+      // ── 本地自定义流量：按 RESET_DAY 自动重置，支持服务器重启容错 ──
       tfTotal = trafficLimitGB * (1024 ** 3);
-      tfPct   = Math.min((tfUsed / tfTotal) * 100, 100);
+
+      const nowDate = new Date();
+
+      // 计算当前计费周期的起点
+      let cycleYear, cycleMonth;
+      if (nowDate.getDate() >= resetDay) {
+        cycleYear  = nowDate.getFullYear();
+        cycleMonth = nowDate.getMonth();
+      } else {
+        // 上个月，注意跨年
+        const tmp = new Date(nowDate.getFullYear(), nowDate.getMonth() - 1, 1);
+        cycleYear  = tmp.getFullYear();
+        cycleMonth = tmp.getMonth();
+      }
+      const lastDayOfCycleMonth = new Date(cycleYear, cycleMonth + 1, 0).getDate();
+      const clampedResetDay = Math.min(resetDay, lastDayOfCycleMonth);
+
+      // storage key 带上周期起点，周期切换时自动换 key（旧数据自然废弃）
+      const cycleKey = `_tf_${cycleYear}_${cycleMonth + 1}_${clampedResetDay}`;
+
+      let base = ctx.storage.getJSON(cycleKey);
+
+      if (!base) {
+        // 首次进入本周期：以当前计数器值为基准
+        base = { baseRx: netRx, baseTx: netTx, accumulated: 0, lastRx: netRx, lastTx: netTx };
+        ctx.storage.setJSON(cycleKey, base);
+      } else if (netRx < base.lastRx || netTx < base.lastTx) {
+        // 检测到服务器重启（计数器归零）：保留重启前已累计的流量
+        const preReboot = Math.max(0, (base.lastRx - base.baseRx) + (base.lastTx - base.baseTx));
+        base.accumulated = (base.accumulated || 0) + preReboot;
+        base.baseRx = netRx;
+        base.baseTx = netTx;
+        base.lastRx = netRx;
+        base.lastTx = netTx;
+        ctx.storage.setJSON(cycleKey, base);
+      } else {
+        // 正常刷新：更新 lastRx/lastTx 用于下次重启检测
+        base.lastRx = netRx;
+        base.lastTx = netTx;
+        ctx.storage.setJSON(cycleKey, base);
+      }
+
+      tfUsed = Math.max(0, (netRx - base.baseRx) + (netTx - base.baseTx) + (base.accumulated || 0));
+      tfPct  = Math.min((tfUsed / tfTotal) * 100, 100);
       tfReset = getNextResetDate(resetDay);
     }
 
@@ -211,7 +258,15 @@ export default async function (ctx) {
       tfUsed, tfTotal, tfPct, tfReset,
     };
   } catch (e) {
-    d = { error: String(e.message || e) };
+    const msg = String(e.message || e);
+    let shortError;
+    if (/timeout|timed out/i.test(msg))                shortError = '连接超时';
+    else if (/authentication|auth|publickey/i.test(msg)) shortError = '认证失败，请检查密钥或密码';
+    else if (/ECONNREFUSED/i.test(msg))                shortError = '连接被拒绝，请检查端口';
+    else if (/ENOTFOUND|EADDRNOTAVAIL/i.test(msg))     shortError = '主机地址无法解析';
+    else if (/ENETUNREACH|EHOSTUNREACH/i.test(msg))    shortError = '网络不可达';
+    else shortError = msg.length > 60 ? msg.slice(0, 60) + '…' : msg;
+    d = { error: shortError };
   }
 
   const C = {
@@ -292,7 +347,7 @@ export default async function (ctx) {
       children: [
         { type: 'stack', direction: 'row', alignItems: 'center', gap: 8, children: [
           { type: 'image', src: 'sf-symbol:exclamationmark.triangle.fill', color: C.temp, width: 20, height: 20 },
-          { type: 'text', text: 'Connection Failed', font: { size: 'headline', weight: 'bold' }, textColor: C.text },
+          { type: 'text', text: '连接失败', font: { size: 'headline', weight: 'bold' }, textColor: C.text },
         ]},
         { type: 'text', text: d.error, font: { size: 'caption1' }, textColor: C.muted, maxLines: 3 },
       ],
@@ -347,10 +402,9 @@ export default async function (ctx) {
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:internaldrive', color: C.disk, width: 13, height: 13 }, { type: 'text', text: 'Disk', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.diskPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.diskPct, 70, 90) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.diskUsed)} / ${fmtBytes(d.diskTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       bar(d.diskPct, pctColor(d.diskPct, 70, 90), 6), { type: 'stack', direction: 'row', children: [{ type: 'text', text: `R ${fmtBytes(d.diskRd)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }, { type: 'spacer' }, { type: 'text', text: `W ${fmtBytes(d.diskWr)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.disk }] }, divider, { type: 'spacer' },
       { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 13, height: 13 }, { type: 'text', text: 'Traffic', font: { size: 'caption1', weight: 'bold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
-      bar(d.tfPct, trafficColor(d.tfPct), 6), 
-      { type: 'stack', direction: 'row', children: [{ type: 'text', text: `↓ 下载: ${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↑ 上传: ${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, 
+      bar(d.tfPct, trafficColor(d.tfPct), 6),
+      { type: 'stack', direction: 'row', children: [{ type: 'text', text: `↓ 下载: ${fmtBytes(d.rxRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'spacer' }, { type: 'text', text: `↑ 上传: ${fmtBytes(d.txRate)}/s`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] },
       divider,
-      
       makeFooter(),
     ],
   };
