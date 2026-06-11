@@ -188,12 +188,14 @@ export default async function (ctx) {
     }
     ctx.storage.setJSON('_dsk', { r: drt, w: dwt, ts: now });
 
-    let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '—';
+    let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '—', tfRx = null, tfTx = null;
     if (bwhData && bwhData.data_counter !== undefined) {
       // ── BWG API 分支：数据由搬瓦工服务端管理，月重置由官方保证 ──
       tfUsed  = bwhData.data_counter;
       tfTotal = bwhData.plan_monthly_data || 1;
       tfPct   = Math.min((tfUsed / tfTotal) * 100, 100);
+      tfRx    = null;
+      tfTx    = null;
       if (bwhData.data_next_reset) {
         const rd = new Date(bwhData.data_next_reset * 1000);
         tfReset = `${rd.getMonth() + 1}月${rd.getDate()}日`;
@@ -245,7 +247,11 @@ export default async function (ctx) {
         ctx.storage.setJSON(cycleKey, base);
       }
 
-      tfUsed = Math.max(0, (netRx - base.baseRx) + (netTx - base.baseTx) + (base.accumulated || 0));
+      const cycleRx = Math.max(0, netRx - base.baseRx);
+      const cycleTx = Math.max(0, netTx - base.baseTx);
+      tfRx   = cycleRx + (base.accumulated || 0) / 2;
+      tfTx   = cycleTx + (base.accumulated || 0) / 2;
+      tfUsed = Math.max(0, cycleRx + cycleTx + (base.accumulated || 0));
       tfPct  = Math.min((tfUsed / tfTotal) * 100, 100);
       tfReset = getNextResetDate(resetDay);
     }
@@ -255,7 +261,7 @@ export default async function (ctx) {
       memTotal, memUsed, memPct, memHist,
       diskTotal, diskUsed, diskPct, diskRd, diskWr,
       rxRate, txRate, netRx, netTx,
-      tfUsed, tfTotal, tfPct, tfReset,
+      tfUsed, tfTotal, tfPct, tfReset, tfRx, tfTx,
     };
   } catch (e) {
     const msg = String(e.message || e);
@@ -384,7 +390,7 @@ export default async function (ctx) {
           { type: 'stack', direction: 'column', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:cpu', color: C.cpu, width: 11, height: 11 }, { type: 'text', text: `CPU ${d.cores}C`, font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `${d.cpuPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.cpuPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `Load ${d.load.join(' ')}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, bar(d.cpuPct, pctColor(d.cpuPct, 60, 85), 4)] },
           { type: 'stack', direction: 'column', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:memorychip', color: C.mem, width: 11, height: 11 }, { type: 'text', text: 'MEM', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `${d.memPct}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: pctColor(d.memPct, 60, 85) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.memUsed)} / ${fmtBytes(d.memTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, bar(d.memPct, pctColor(d.memPct, 60, 85), 4)] },
           { type: 'stack', direction: 'column', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', color: trafficColor(d.tfPct), width: 11, height: 11 }, { type: 'text', text: 'TRAF', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `${d.tfPct.toFixed(1)}%`, font: { size: 'caption1', weight: 'bold', family: 'Menlo' }, textColor: trafficColor(d.tfPct) }, { type: 'spacer' }, { type: 'text', text: `${fmtBytes(d.tfUsed)} / ${fmtBytes(d.tfTotal)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }, bar(d.tfPct, trafficColor(d.tfPct), 4)] },
-          { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:network', color: C.net, width: 11, height: 11 }, { type: 'text', text: 'NET', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s`, font: { size: 11, family: 'Menlo', weight: 'medium' }, textColor: C.net }, { type: 'text', text: `↑${fmtBytes(d.txRate)}/s`, font: { size: 11, family: 'Menlo', weight: 'medium' }, textColor: C.netTx }, { type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.netRx)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'text', text: `↑${fmtBytes(d.netTx)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }
+          { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [{ type: 'image', src: 'sf-symbol:network', color: C.net, width: 11, height: 11 }, { type: 'text', text: 'NET', font: { size: 'caption1', weight: 'semibold' }, textColor: C.text }, { type: 'text', text: `↓${fmtBytes(d.rxRate)}/s`, font: { size: 11, family: 'Menlo', weight: 'medium' }, textColor: C.net }, { type: 'text', text: `↑${fmtBytes(d.txRate)}/s`, font: { size: 11, family: 'Menlo', weight: 'medium' }, textColor: C.netTx }, { type: 'spacer' }, { type: 'text', text: `↓${fmtBytes(d.tfRx)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }, { type: 'text', text: `↑${fmtBytes(d.tfTx)}`, font: { size: 10, family: 'Menlo' }, textColor: C.dim }] }
         ]},
         { type: 'spacer' }, makeFooter(),
       ],
