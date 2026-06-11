@@ -260,7 +260,7 @@ export default async function (ctx) {
       hostname, load, uptime, cpuPct, cpuHist, cores,
       memTotal, memUsed, memPct, memHist,
       diskTotal, diskUsed, diskPct, diskRd, diskWr,
-      rxRate, txRate, netRx, netTx,
+      rxRate, txRate,
       tfUsed, tfTotal, tfPct, tfReset, tfRx, tfTx,
     };
   } catch (e) {
