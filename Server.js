@@ -63,6 +63,7 @@ export default async function (ctx) {
   try {
     const env = ctx.env;
     const { host, username, password, privateKey, port } = env;
+    const ns             = host.replace(/[^a-zA-Z0-9]/g, '_');
     const bwhVeid        = env.BWH_VEID || '';
     const bwhApiKey      = env.BWH_API_KEY || '';
     const trafficLimitGB = Number(env.TRAFFIC_LIMIT) || 2000;
@@ -130,25 +131,25 @@ export default async function (ctx) {
     const cpuNums = cpuStr.replace(/^cpu\s+/, '').split(/\s+/).map(Number);
     const cpuTotal = cpuNums.reduce((a, b) => a + b, 0) || 0;
     const cpuIdle = cpuNums[3] || 0;
-    const prevCpu = ctx.storage.getJSON('_cpu');
+    const prevCpu = ctx.storage.getJSON(`${ns}_cpu`);
     let cpuPct = 0;
     if (prevCpu && cpuTotal > prevCpu.t) {
       cpuPct = Math.round(((cpuTotal - prevCpu.t - (cpuIdle - prevCpu.i)) / (cpuTotal - prevCpu.t)) * 100);
     }
-    ctx.storage.setJSON('_cpu', { t: cpuTotal, i: cpuIdle });
+    ctx.storage.setJSON(`${ns}_cpu`, { t: cpuTotal, i: cpuIdle });
     cpuPct = Math.max(0, Math.min(100, isNaN(cpuPct) ? 0 : cpuPct));
-    const cpuHist = ctx.storage.getJSON('_cpuH') || [];
+    const cpuHist = ctx.storage.getJSON(`${ns}_cpuH`) || [];
     cpuHist.push(cpuPct);
     while (cpuHist.length > 20) cpuHist.shift();
-    ctx.storage.setJSON('_cpuH', cpuHist);
+    ctx.storage.setJSON(`${ns}_cpuH`, cpuHist);
 
     const memNums = (parseOutput(stdout, 4) || '1 0').split(/\s+/).map(Number);
     const memTotal = memNums[0] || 1, memUsed = memNums[1] || 0;
     const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100)) || 0;
-    const memHist = ctx.storage.getJSON('_memH') || [];
+    const memHist = ctx.storage.getJSON(`${ns}_memH`) || [];
     memHist.push(memPct);
     while (memHist.length > 20) memHist.shift();
-    ctx.storage.setJSON('_memH', memHist);
+    ctx.storage.setJSON(`${ns}_memH`, memHist);
 
     const df = (parseOutput(stdout, 5) || '').split(/\s+/);
     const diskTotal = Number(df[1]) || 1, diskUsed = Number(df[2]) || 0;
@@ -157,7 +158,7 @@ export default async function (ctx) {
 
     const nn = (parseOutput(stdout, 7) || '0 0').split(' ');
     const netRx = Number(nn[0]) || 0, netTx = Number(nn[1]) || 0;
-    const prevNet = ctx.storage.getJSON('_net');
+    const prevNet = ctx.storage.getJSON(`${ns}_net`);
     const now = Date.now();
     let rxRate = 0, txRate = 0;
     if (prevNet && prevNet.ts) {
@@ -170,11 +171,11 @@ export default async function (ctx) {
         txRate = tx < cap ? tx : null;
       }
     }
-    ctx.storage.setJSON('_net', { rx: netRx, tx: netTx, ts: now });
+    ctx.storage.setJSON(`${ns}_net`, { rx: netRx, tx: netTx, ts: now });
 
     const dio = (parseOutput(stdout, 8) || '0 0').split(' ');
     const drt = Number(dio[0]) || 0, dwt = Number(dio[1]) || 0;
-    const prevDsk = ctx.storage.getJSON('_dsk');
+    const prevDsk = ctx.storage.getJSON(`${ns}_dsk`);
     let diskRd = 0, diskWr = 0;
     if (prevDsk && prevDsk.ts) {
       const el = (now - prevDsk.ts) / 1000;
@@ -186,7 +187,7 @@ export default async function (ctx) {
         diskWr = wr < cap ? wr : null;
       }
     }
-    ctx.storage.setJSON('_dsk', { r: drt, w: dwt, ts: now });
+    ctx.storage.setJSON(`${ns}_dsk`, { r: drt, w: dwt, ts: now });
 
     let tfUsed = 0, tfTotal = 1, tfPct = 0, tfReset = '—', tfRx = null, tfTx = null;
     if (bwhData && bwhData.data_counter !== undefined) {
@@ -223,18 +224,18 @@ export default async function (ctx) {
       const clampedResetDay = Math.min(resetDay, lastDayOfCycleMonth);
 
       // storage key 带上周期起点，周期切换时自动换 key（旧数据自然废弃）
-      const cycleKey = `_tf_${cycleYear}_${cycleMonth + 1}_${clampedResetDay}`;
+      const cycleKey = `${ns}_tf_${cycleYear}_${cycleMonth + 1}_${clampedResetDay}`;
 
       let base = ctx.storage.getJSON(cycleKey);
 
       if (!base) {
         // 首次进入本周期：以当前计数器值为基准
-        base = { baseRx: netRx, baseTx: netTx, accumulated: 0, lastRx: netRx, lastTx: netTx };
+        base = { baseRx: netRx, baseTx: netTx, accRx: 0, accTx: 0, lastRx: netRx, lastTx: netTx };
         ctx.storage.setJSON(cycleKey, base);
       } else if (netRx < base.lastRx || netTx < base.lastTx) {
         // 检测到服务器重启（计数器归零）：保留重启前已累计的流量
-        const preReboot = Math.max(0, (base.lastRx - base.baseRx) + (base.lastTx - base.baseTx));
-        base.accumulated = (base.accumulated || 0) + preReboot;
+        base.accRx = (base.accRx || 0) + Math.max(0, base.lastRx - base.baseRx);
+        base.accTx = (base.accTx || 0) + Math.max(0, base.lastTx - base.baseTx);
         base.baseRx = netRx;
         base.baseTx = netTx;
         base.lastRx = netRx;
@@ -249,9 +250,9 @@ export default async function (ctx) {
 
       const cycleRx = Math.max(0, netRx - base.baseRx);
       const cycleTx = Math.max(0, netTx - base.baseTx);
-      tfRx   = cycleRx + (base.accumulated || 0) / 2;
-      tfTx   = cycleTx + (base.accumulated || 0) / 2;
-      tfUsed = Math.max(0, cycleRx + cycleTx + (base.accumulated || 0));
+      tfRx   = cycleRx + (base.accRx || 0);
+      tfTx   = cycleTx + (base.accTx || 0);
+      tfUsed = tfRx + tfTx;
       tfPct  = Math.min((tfUsed / tfTotal) * 100, 100);
       tfReset = getNextResetDate(resetDay);
     }
