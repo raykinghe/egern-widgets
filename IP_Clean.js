@@ -100,7 +100,7 @@ export default async function(ctx) {
           { type: 'image', src: 'sf-symbol:shield.lefthalf.filled', color: C_TITLE, width: 18, height: 18 },
           { type: 'text', text: 'IP 纯净度', font: { size: 16, weight: 'heavy' }, textColor: C_TITLE },
           { type: 'spacer' },
-          { type: 'text', text: fetchError ? '⚠️ 请求失败' : '', font: { size: 11 }, textColor: C_SUB }
+          ...(fetchError ? [{ type: 'text', text: '⚠️ 请求失败', font: { size: 11 }, textColor: C_SUB }] : [])
         ]
       },
       {
