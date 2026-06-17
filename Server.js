@@ -111,8 +111,15 @@ export default async function (ctx) {
       'echo "[CMD7]"; awk \'/^ *(eth|en|wlan|ens|eno|bond|veth)/{rx+=$2;tx+=$10}END{print rx,tx}\' /proc/net/dev 2>/dev/null || echo "0 0"',
       'echo "[CMD8]"; awk \'$3~/^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)$/{r+=$6;w+=$10}END{print r*512,w*512}\' /proc/diskstats 2>/dev/null || echo "0 0"',
     ];
-    
-    const { stdout } = await session.exec(cmds.join(' ; '));
+
+    // 全局强制 LC_ALL=C：确保本次 SSH 会话内所有命令（不限于当前这几条）
+    // 的数字/文本输出格式都固定为标准格式，不受目标服务器系统 locale
+    // 设置（如某些机房默认的德语/法语等非英语环境）影响，避免类似
+    // awk 大数字被本地化成科学计数法+逗号小数点、导致 JS 端 Number()
+    // 解析失败归零的问题。这是一次性声明，覆盖整条拼接命令，未来新增
+    // 命令无需再逐条手动添加 LC_ALL=C 前缀。
+    const fullCmd = `export LC_ALL=C; ${cmds.join(' ; ')}`;
+    const { stdout } = await session.exec(fullCmd);
     await session.close();
 
     const parseOutput = (outputStr, index) => {
@@ -122,6 +129,23 @@ export default async function (ctx) {
     };
 
     const hostname = parseOutput(stdout, 0) || 'server';
+
+    // 安全数字解析：主要修复手段是各 awk 命令前的 LC_ALL=C（确保输出始终为
+    // 标准十进制格式，不受服务器系统 locale 影响而被格式化成科学计数法/
+    // 逗号小数点等形式）。这里仅做轻量兜底——处理纯千位分隔符场景
+    // （如 "1,234,567"）。注意：不处理科学计数法被 locale 篡改的情况
+    // （如 "8,69998e+09"），那种损坏是不可逆的格式破坏，必须从源头用
+    // LC_ALL=C 杜绝，此处兜底无法安全还原，宁可 fallback 为 0。
+    const safeNum = (s) => {
+      const n = Number(s);
+      if (!isNaN(n)) return n;
+      if (/^-?[\d,]+$/.test(String(s).trim())) {
+        const cleaned = Number(String(s).replace(/,/g, ''));
+        if (!isNaN(cleaned)) return cleaned;
+      }
+      return 0;
+    };
+
     const la = (parseOutput(stdout, 1) || '0 0 0').split(' ');
     const load = [la[0] || '0', la[1] || '0', la[2] || '0'];
     
@@ -143,7 +167,7 @@ export default async function (ctx) {
     while (cpuHist.length > 20) cpuHist.shift();
     ctx.storage.setJSON(`${ns}_cpuH`, cpuHist);
 
-    const memNums = (parseOutput(stdout, 4) || '1 0').split(/\s+/).map(Number);
+    const memNums = (parseOutput(stdout, 4) || '1 0').split(/\s+/).map(safeNum);
     const memTotal = memNums[0] || 1, memUsed = memNums[1] || 0;
     const memPct = Math.min(100, Math.round((memUsed / memTotal) * 100)) || 0;
     const memHist = ctx.storage.getJSON(`${ns}_memH`) || [];
@@ -157,7 +181,7 @@ export default async function (ctx) {
     const cores = parseInt(parseOutput(stdout, 6)) || 1;
 
     const nn = (parseOutput(stdout, 7) || '0 0').split(' ');
-    const netRx = Number(nn[0]) || 0, netTx = Number(nn[1]) || 0;
+    const netRx = safeNum(nn[0]), netTx = safeNum(nn[1]);
     const prevNet = ctx.storage.getJSON(`${ns}_net`);
     const now = Date.now();
     let rxRate = 0, txRate = 0;
@@ -174,7 +198,7 @@ export default async function (ctx) {
     ctx.storage.setJSON(`${ns}_net`, { rx: netRx, tx: netTx, ts: now });
 
     const dio = (parseOutput(stdout, 8) || '0 0').split(' ');
-    const drt = Number(dio[0]) || 0, dwt = Number(dio[1]) || 0;
+    const drt = safeNum(dio[0]), dwt = safeNum(dio[1]);
     const prevDsk = ctx.storage.getJSON(`${ns}_dsk`);
     let diskRd = 0, diskWr = 0;
     if (prevDsk && prevDsk.ts) {
