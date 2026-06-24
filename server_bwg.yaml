@@ -43,7 +43,7 @@ scriptings:
 - generic:
     name: BWG 服务器监控
     # ⚠️ 请将下方网址修改为你自己 GitHub 仓库里 Server.js 的真实 Raw 链接
-    script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/Server.js?token=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
+    script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/Server.js
 
 widgets:
 - name: BWG 服务器监控
