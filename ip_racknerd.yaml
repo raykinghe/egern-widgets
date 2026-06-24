@@ -1,7 +1,7 @@
 widgets:
   - generic:
       name: IP RACKNERD
-      script_url: https://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@raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/IP_Clean.js
+      script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/IP_Clean.js
       env:
         policy: 🇩🇪NETCUP
       update_interval: 86400
