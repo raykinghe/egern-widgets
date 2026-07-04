@@ -1,1 +1,8 @@
-
+widgets:
+  - generic:
+      name: IP V.PS
+      script_url: https://raw.githubusercontent.com/raykinghe/egern-widgets/refs/heads/main/IP_Clean.js
+      env:
+        policy: 🇯🇵V.PS
+      update_interval: 86400
+      timeout: 10
