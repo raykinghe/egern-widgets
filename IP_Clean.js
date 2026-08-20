@@ -1,12 +1,7 @@
 /**
- * 📌 桌面小组件: 🛡️ IP 纯净度 (调试版)
+ * 📌 桌面小组件: 🛡️ IP 纯净度
  * 小组件环境变量：
  * 1. 名称 policy，值为策略组名称，默认 DIRECT
- *
- * 本版本在原脚本基础上，额外增加一行"调试信息"，
- * 显示接口返回原始 JSON 中几个可能与风险分数相关的字段，
- * 用于排查为什么 widget 分数和网页版 IPPure 系数不一致。
- * 排查完毕后可删掉调试相关代码，恢复为原版。
  */
 export default async function(ctx) {
   const POLICY = ctx.env.policy || 'DIRECT';
@@ -18,18 +13,16 @@ export default async function(ctx) {
   const C_GREEN    = { light: '#32D74B', dark: '#32D74B' };
   const C_ICON_IP  = { light: '#007AFF', dark: '#0A84FF' };
   const C_ICON_LOC = { light: '#5856D6', dark: '#5E5CE6' };
-  const C_DEBUG    = { light: '#FF3B30', dark: '#FF453A' };
 
   let d = {};
   let fetchError = false;
-  let rawText = "";
   try {
     const res = await ctx.http.get('https://my.ippure.com/v1/info', {
       timeout: 8000,
       policy: POLICY
     });
-    rawText = await res.text();
-    d = JSON.parse(rawText);
+    const text = await res.text();
+    d = JSON.parse(text);
     if (typeof d !== 'object' || d === null) d = {};
   } catch (e) {
     fetchError = true;
@@ -79,23 +72,6 @@ export default async function(ctx) {
     }
   }
 
-  // ===== 调试信息：列出原始 JSON 里所有可能和"风险分数"相关的字段 =====
-  // 只要接口里出现类似 fraudScore / score / risk / ippureScore / fraud_score 等命名，都会被抓出来显示
-  let debugTxt = "无数据";
-  if (!fetchError && typeof d === 'object' && d !== null) {
-    const keys = Object.keys(d);
-    const riskLikeKeys = keys.filter(k =>
-      /score|risk|fraud|pure|danger|level/i.test(k)
-    );
-    if (riskLikeKeys.length > 0) {
-      debugTxt = riskLikeKeys.map(k => `${k}=${JSON.stringify(d[k])}`).join(' | ');
-    } else {
-      debugTxt = `未找到风险相关字段。全部字段: ${keys.join(', ')}`;
-    }
-  } else if (fetchError) {
-    debugTxt = "请求失败，无法获取数据";
-  }
-
   const Row = (iconName, iconColor, label, value, valueColor) => ({
     type: 'stack',
     direction: 'row',
@@ -122,7 +98,7 @@ export default async function(ctx) {
         gap: 8,
         children: [
           { type: 'image', src: 'sf-symbol:shield.lefthalf.filled', color: C_TITLE, width: 18, height: 18 },
-          { type: 'text', text: 'IP 纯净度 (调试)', font: { size: 16, weight: 'heavy' }, textColor: C_TITLE },
+          { type: 'text', text: 'IP 纯净度', font: { size: 16, weight: 'heavy' }, textColor: C_TITLE },
           { type: 'spacer' },
           ...(fetchError ? [{ type: 'text', text: '⚠️ 请求失败', font: { size: 11 }, textColor: C_SUB }] : [])
         ]
@@ -137,16 +113,6 @@ export default async function(ctx) {
           Row("mappin.and.ellipse", C_ICON_LOC, "位置", loc, locColor),
           Row("antenna.radiowaves.left.and.right", C_ICON_LOC, "IP属性", ipTypeText, C_SUB),
           Row(riskIc, riskCol, "风险评级", riskTxt, riskCol)
-        ]
-      },
-      // ===== 调试信息展示区（排查完成后可删除本段） =====
-      {
-        type: 'stack',
-        direction: 'column',
-        gap: 4,
-        children: [
-          { type: 'text', text: '🐞 调试信息（原始字段）:', font: { size: 10, weight: 'bold' }, textColor: C_DEBUG },
-          { type: 'text', text: debugTxt, font: { size: 10, family: 'Menlo' }, textColor: C_DEBUG, maxLines: 4, minScale: 0.5 }
         ]
       }
     ]
